@@ -96,7 +96,7 @@ CREATE TABLE t4 (a int);
 # MYSQL_BINLOG BINLOG_FILE_PARAM --start-datetime="1970-01-21 15:32:24" --do-server-ids=3 --do-domain-ids=1 | MYSQL
 DROP TABLE t4;
 #
-#   Test Case 10) --do-server-ids works with --read-from-remote-server
+#   Test Case 10) --do-server-ids works with --read-from-remote-host
 # Setup test specific data
 RESET MASTER;
 SET @@session.gtid_domain_id= 0;

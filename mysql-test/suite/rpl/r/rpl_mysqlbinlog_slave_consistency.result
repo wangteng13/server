@@ -39,19 +39,19 @@ connection master;
 # Verifying integrity of tables..
 connection master;
 connection slave;
-# t1 is equivalent on master and slave
-connection master;
-connection slave;
-# t2 is equivalent on master and slave
-connection master;
-connection slave;
-# t3 is equivalent on master and slave
+# t5 is equivalent on master and slave
 connection master;
 connection slave;
 # t4 is equivalent on master and slave
 connection master;
 connection slave;
-# t5 is equivalent on master and slave
+# t3 is equivalent on master and slave
+connection master;
+connection slave;
+# t2 is equivalent on master and slave
+connection master;
+connection slave;
+# t1 is equivalent on master and slave
 # All tables are consistent
 # Test finished - resetting master and slave..
 connection slave;
@@ -99,10 +99,10 @@ connection master;
 # Verifying integrity of tables..
 connection master;
 connection slave;
-# t1 is equivalent on master and slave
+# t2 is equivalent on master and slave
 connection master;
 connection slave;
-# t2 is equivalent on master and slave
+# t1 is equivalent on master and slave
 # All tables are consistent
 # Test finished - resetting master and slave..
 connection slave;
@@ -152,16 +152,16 @@ connection master;
 # Verifying integrity of tables..
 connection master;
 connection slave;
-# t1 is equivalent on master and slave
-connection master;
-connection slave;
-# t2 is equivalent on master and slave
+# t4 is equivalent on master and slave
 connection master;
 connection slave;
 # t3 is equivalent on master and slave
 connection master;
 connection slave;
-# t4 is equivalent on master and slave
+# t2 is equivalent on master and slave
+connection master;
+connection slave;
+# t1 is equivalent on master and slave
 # All tables are consistent
 # Test finished - resetting master and slave..
 connection slave;
@@ -210,13 +210,13 @@ connection master;
 # Verifying integrity of tables..
 connection master;
 connection slave;
-# t3 is equivalent on master and slave
+# t5 is equivalent on master and slave
 connection master;
 connection slave;
 # t4 is equivalent on master and slave
 connection master;
 connection slave;
-# t5 is equivalent on master and slave
+# t3 is equivalent on master and slave
 # All tables are consistent
 # Test finished - resetting master and slave..
 connection slave;
@@ -315,10 +315,10 @@ connection master;
 # Verifying integrity of tables..
 connection master;
 connection slave;
-# t2 is equivalent on master and slave
+# t4 is equivalent on master and slave
 connection master;
 connection slave;
-# t4 is equivalent on master and slave
+# t2 is equivalent on master and slave
 # All tables are consistent
 # Test finished - resetting master and slave..
 connection slave;
@@ -368,10 +368,10 @@ connection master;
 # Verifying integrity of tables..
 connection master;
 connection slave;
-# t2 is equivalent on master and slave
+# t4 is equivalent on master and slave
 connection master;
 connection slave;
-# t4 is equivalent on master and slave
+# t2 is equivalent on master and slave
 # All tables are consistent
 # Test finished - resetting master and slave..
 connection slave;
@@ -472,16 +472,16 @@ connection master;
 # Verifying integrity of tables..
 connection master;
 connection slave;
-# t1 is equivalent on master and slave
-connection master;
-connection slave;
-# t2 is equivalent on master and slave
+# t5 is equivalent on master and slave
 connection master;
 connection slave;
 # t4 is equivalent on master and slave
 connection master;
 connection slave;
-# t5 is equivalent on master and slave
+# t2 is equivalent on master and slave
+connection master;
+connection slave;
+# t1 is equivalent on master and slave
 # All tables are consistent
 # Test finished - resetting master and slave..
 connection slave;
@@ -633,10 +633,10 @@ connection master;
 # Verifying integrity of tables..
 connection master;
 connection slave;
-# t1 is equivalent on master and slave
+# t2 is equivalent on master and slave
 connection master;
 connection slave;
-# t2 is equivalent on master and slave
+# t1 is equivalent on master and slave
 # All tables are consistent
 # Test finished - resetting master and slave..
 connection slave;
@@ -839,13 +839,13 @@ connection master;
 # Verifying integrity of tables..
 connection master;
 connection slave;
-# t3 is equivalent on master and slave
+# t5 is equivalent on master and slave
 connection master;
 connection slave;
 # t4 is equivalent on master and slave
 connection master;
 connection slave;
-# t5 is equivalent on master and slave
+# t3 is equivalent on master and slave
 # All tables are consistent
 # Test finished - resetting master and slave..
 connection slave;
@@ -896,10 +896,10 @@ connection master;
 # Verifying integrity of tables..
 connection master;
 connection slave;
-# t2 is equivalent on master and slave
+# t4 is equivalent on master and slave
 connection master;
 connection slave;
-# t4 is equivalent on master and slave
+# t2 is equivalent on master and slave
 # All tables are consistent
 # Test finished - resetting master and slave..
 connection slave;

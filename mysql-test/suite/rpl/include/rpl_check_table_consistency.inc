@@ -41,7 +41,7 @@ if (`SELECT $c1_n_tables != $n_tables`)
 --echo # Verifying integrity of tables..
 while($ctr <= $n_tables)
 {
-    --let $cksum_tbl= query_get_value(SELECT table_name FROM information_schema.tables WHERE table_schema = 'test' ORDER BY table_name ASC, table_name, $ctr)
+    --let $cksum_tbl= query_get_value(SELECT table_name FROM information_schema.tables WHERE table_schema = 'test', table_name, $ctr)
     --connection $con1
     --let $c1_cksum= `CHECKSUM TABLE $cksum_tbl`
     --connection $con2
