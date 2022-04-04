@@ -1474,7 +1474,7 @@ inline bool buf_pool_t::withdraw_blocks()
 				std::max<ulint>(withdraw_target
 						- UT_LIST_GET_LEN(withdraw),
 						srv_LRU_scan_depth));
-			buf_flush_wait_batch_end_acquiring_mutex(true);
+			buf_flush_wait_LRU_batch_end_acquiring_mutex();
 		}
 
 		/* relocate blocks/buddies in withdrawn area */
@@ -3798,9 +3798,6 @@ void buf_pool_invalidate()
 {
 	mysql_mutex_lock(&buf_pool.mutex);
 
-	buf_flush_wait_batch_end(true);
-	buf_flush_wait_batch_end(false);
-
 	/* It is possible that a write batch that has been posted
 	earlier is still not complete. For buffer pool invalidation to
 	proceed we must ensure there is NO write activity happening. */
@@ -3940,6 +3937,8 @@ void buf_pool_t::print()
 
 	counts = static_cast<ulint*>(ut_malloc_nokey(sizeof(ulint) * size));
 
+	size_t pending_writes = buf_dblwr.pending_writes();
+
 	mysql_mutex_lock(&mutex);
 	mysql_mutex_lock(&flush_list_mutex);
 
@@ -3952,7 +3951,7 @@ void buf_pool_t::print()
 		<< ", n pending decompressions=" << n_pend_unzip
 		<< ", n pending reads=" << n_pend_reads
 		<< ", n pending flush LRU=" << n_flush_LRU_
-		<< " list=" << n_flush_list_
+		<< " list=" << pending_writes
 		<< ", pages made young=" << stat.n_pages_made_young
 		<< ", not young=" << stat.n_pages_not_made_young
 		<< ", pages read=" << stat.n_pages_read
@@ -4070,7 +4069,7 @@ void buf_stats_get_pool_info(buf_pool_info_t *pool_info)
 
 	pool_info->n_pending_flush_lru = buf_pool.n_flush_LRU_;
 
-	pool_info->n_pending_flush_list = buf_pool.n_flush_list_;
+	pool_info->n_pending_flush_list = buf_dblwr.pending_writes();
 
 	current_time = time(NULL);
 	time_elapsed = 0.001 + difftime(current_time,
