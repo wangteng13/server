@@ -2638,7 +2638,8 @@ commit_exit:
 	    && !index->table->skip_alter_undo
 	    && !index->table->n_rec_locks
 	    && !trx->is_wsrep() /* FIXME: MDEV-24623 */
-	    && !thd_is_slave(trx->mysql_thd) /* FIXME: MDEV-24622 */) {
+	    && !thd_is_slave(trx->mysql_thd) /* FIXME: MDEV-24622 */
+	    && !index->table->has_spatial_index()) {
 		DEBUG_SYNC_C("empty_root_page_insert");
 
 		trx->bulk_insert = true;
