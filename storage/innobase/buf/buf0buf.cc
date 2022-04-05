@@ -3937,8 +3937,6 @@ void buf_pool_t::print()
 
 	counts = static_cast<ulint*>(ut_malloc_nokey(sizeof(ulint) * size));
 
-	size_t pending_writes = buf_dblwr.pending_writes();
-
 	mysql_mutex_lock(&mutex);
 	mysql_mutex_lock(&flush_list_mutex);
 
@@ -3951,7 +3949,7 @@ void buf_pool_t::print()
 		<< ", n pending decompressions=" << n_pend_unzip
 		<< ", n pending reads=" << n_pend_reads
 		<< ", n pending flush LRU=" << n_flush_LRU_
-		<< " list=" << pending_writes
+		<< " list=" << buf_dblwr.pending_writes()
 		<< ", pages made young=" << stat.n_pages_made_young
 		<< ", not young=" << stat.n_pages_not_made_young
 		<< ", pages read=" << stat.n_pages_read
