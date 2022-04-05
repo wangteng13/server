@@ -38,9 +38,11 @@ drop table t1, t2, t3, t4;
 --echo #
 create table t1 (x int) with system versioning;
 set debug_dbug='+d,error_vers_wrong_type';
---replace_result $MYSQLTEST_VARDIR . master-data// '' '\\' '/'
+let $MYSQLD_DATADIR= `SELECT @@datadir`;
+--replace_result $MYSQLD_DATADIR ./ '\\' '/'
 --error ER_NOT_FORM_FILE
 show create table t1;
+--replace_result $MYSQLD_DATADIR ./ '\\' '/'
 show warnings;
 drop table t1;
 set global debug_dbug=@old_dbug;
