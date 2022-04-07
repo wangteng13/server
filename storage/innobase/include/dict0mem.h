@@ -1400,23 +1400,13 @@ public:
   @param thr query thread */
   void clear(que_thr_t *thr);
 
-  /** Assign the clustered index online log to table.
-  It can be used by concurrent DML to identify whether
-  the table has any active DDL */
-  void assign_dummy_log()
+  /** Check whether the online log is dummy value to indicate
+  whether table undergoes active DDL.
+  @retval true if online log is dummy value */
+  bool online_log_is_dummy() const
   {
-    ut_ad(this->is_clust());
-    lock.s_lock(SRW_LOCK_CALL);
-    online_log= reinterpret_cast<row_log_t*>(table);
-    lock.s_unlock();
-  }
-
-  /** Clear the online log for the clustered index */
-  void clear_dummy_log()
-  {
-    lock.s_lock(SRW_LOCK_CALL);
-    online_log= nullptr;
-    lock.s_unlock();
+    return online_log == reinterpret_cast<row_log_t*>(
+				const_cast<dict_index_t*>(this));
   }
 };
 

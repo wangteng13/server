@@ -89,9 +89,8 @@ inline void row_log_abort_sec(dict_index_t *index)
 @param	trx_id	transaction ID for insert, or 0 for delete
 @retval false if row_log_apply() failure happens
 or true otherwise */
-bool
-row_log_online_op(dict_index_t *index, const dtuple_t *tuple,
-		  trx_id_t trx_id) ATTRIBUTE_COLD;
+bool row_log_online_op(dict_index_t *index, const dtuple_t *tuple,
+                       trx_id_t trx_id) ATTRIBUTE_COLD;
 
 /******************************************************//**
 Gets the error status of the online index rebuild log.
@@ -105,7 +104,7 @@ row_log_table_get_error(
 
 /** Check whether a virtual column is indexed in the new table being
 created during alter table
-@param[in]	index	clustered index
+@param[in]	index	cluster index
 @param[in]	v_no	virtual column number
 @return true if it is indexed, else false */
 bool
@@ -245,10 +244,10 @@ row_log_estimate_work(
 @param	rec_info	undo log record info
 @param	clust_index	clustered index
 @param	heap		memory heap */
-void row_log_insert_handle(const dtuple_t *tuple,
-                           const trx_undo_rec_info *rec_info,
-                           dict_index_t *clust_index,
-                           mem_heap_t *heap);
+void row_log_insert(const dtuple_t *tuple,
+                    const trx_undo_rec_info *rec_info,
+                    dict_index_t *clust_index,
+                    mem_heap_t *heap);
 
 /** Handle the update, delete undo log and apply it on online
 indexes
@@ -256,7 +255,7 @@ indexes
 @param	rec_info	undo log record info
 @param	clust_index	clustered index
 @param	heap		memory heap */
-void row_log_update_handle(const dtuple_t *tuple,
-                           const trx_undo_rec_info *rec_info,
-                           dict_index_t *clust_index,
-                           mem_heap_t *heap);
+void row_log_update(const dtuple_t *tuple,
+                    const trx_undo_rec_info *rec_info,
+                    dict_index_t *clust_index,
+                    mem_heap_t *heap);

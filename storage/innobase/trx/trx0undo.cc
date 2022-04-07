@@ -306,7 +306,7 @@ static void trx_undo_rec_apply_insert(trx_undo_rec_t *rec,
   const dtuple_t *undo_tuple;
   rec= trx_undo_rec_get_row_ref(rec, index, &undo_tuple, heap);
   rec_info->undo_rec= rec;
-  row_log_insert_handle(undo_tuple, rec_info, index, heap);
+  row_log_insert(undo_tuple, rec_info, index, heap);
 }
 
 /** Apply the TRX_UNDO_UPD & TRX_UNDO_DEL undo log record
@@ -333,9 +333,9 @@ static void trx_undo_rec_apply_update(trx_undo_rec_t *rec,
                                       heap, &rec_info->update);
   rec_info->undo_rec= rec;
   if (rec_info->type == TRX_UNDO_UPD_DEL_REC)
-    row_log_insert_handle(undo_tuple, rec_info, index, heap);
+    row_log_insert(undo_tuple, rec_info, index, heap);
   else
-    row_log_update_handle(undo_tuple, rec_info, index, heap);
+    row_log_update(undo_tuple, rec_info, index, heap);
 }
 
 /** Apply all DML undo log records to the online DDL tables
@@ -356,26 +356,22 @@ static void trx_undo_rec_apply_log(trx_undo_rec_t *rec,
   rec_t *ptr= trx_undo_rec_get_pars(rec, &type, &cmpl_info,
                                     &updated_extern, &undo_no, &table_id);
   auto it= online_log_tables.find(table_id);
-  if (it == online_log_tables.end())
+  if (it == online_log_tables.end() || !it->second->is_active_ddl())
     return;
 
-
-  if (!it->second->is_active_ddl())
-    return;
   undo_info->assign_value(type, cmpl_info, updated_extern,
                           undo_no);
-  switch(type)
-  {
-    case TRX_UNDO_INSERT_REC:
-      trx_undo_rec_apply_insert(ptr, undo_info, it->second, heap);
+  switch(type) {
+  case TRX_UNDO_INSERT_REC:
+    trx_undo_rec_apply_insert(ptr, undo_info, it->second, heap);
     break;
-    case TRX_UNDO_UPD_EXIST_REC:
-    case TRX_UNDO_UPD_DEL_REC:
-    case TRX_UNDO_DEL_MARK_REC:
-      trx_undo_rec_apply_update(ptr, undo_info, it->second, heap);
+  case TRX_UNDO_UPD_EXIST_REC:
+  case TRX_UNDO_UPD_DEL_REC:
+  case TRX_UNDO_DEL_MARK_REC:
+    trx_undo_rec_apply_update(ptr, undo_info, it->second, heap);
     break;
-    default:
-      ut_ad(0);
+  default:
+    ut_ad(0);
   }
 
   mem_heap_empty(heap);
@@ -1521,4 +1517,12 @@ void trx_undo_free_at_shutdown(trx_t *trx)
 		ut_free(undo);
 		undo = NULL;
 	}
+}
+
+bool trx_undo_rec_info::is_equal(roll_ptr_t roll_ptr) const
+{
+  uint16_t offset= static_cast<uint16_t>(roll_ptr);
+  uint32_t page_no= static_cast<uint32_t>(roll_ptr >> 16);
+  return page_no == block->page.id().page_no()
+         && offset == this->offset;
 }

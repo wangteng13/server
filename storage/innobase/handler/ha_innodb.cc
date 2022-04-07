@@ -5239,6 +5239,7 @@ void ha_innobase::column_bitmaps_signal()
         (dict_index_is_online_ddl(clust_index) &&
          row_log_col_is_indexed(clust_index, num_v)))
       table->mark_virtual_column_with_deps(table->vfield[j]);
+    num_v++;
   }
 }
 

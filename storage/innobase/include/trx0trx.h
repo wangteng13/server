@@ -889,7 +889,6 @@ public:
 					error, or empty. */
 	rw_trx_hash_element_t *rw_trx_hash_element;
 	LF_PINS *rw_trx_hash_pins;
-
 	ulint		magic_n;
 
 	/** @return whether any persistent undo log has been generated */
@@ -1032,6 +1031,7 @@ public:
     ut_ad(!autoinc_locks || ib_vector_is_empty(autoinc_locks));
     ut_ad(UT_LIST_GET_LEN(lock.evicted_tables) == 0);
     ut_ad(!dict_operation);
+    ut_ad(!apply_online_log);
   }
 
   /** This has to be invoked on SAVEPOINT or at the end of a statement.

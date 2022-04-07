@@ -1175,10 +1175,12 @@ struct ha_innobase_inplace_ctx : public inplace_alter_handler_ctx
   }
 
   /** Handle the apply log failure for online DDL operation.
-  @param ha_alter_info	handler alter inplace info
-  @param altered_table	MySQL table that is being altered
-  @param error		error code */
-  void log_handle_failure(Alter_inplace_info* ha_alter_info,
+  @param ha_alter_info    handler alter inplace info
+  @param altered_table    MySQL table that is being altered
+  @param error            error code
+  @retval false if error value is DB_SUCCESS or
+  TRUE in case of error */
+  bool log_handle_failure(Alter_inplace_info* ha_alter_info,
                           TABLE* altered_table,
                           dberr_t error);
 };
@@ -7019,7 +7021,7 @@ error_handling_drop_uncached:
 						row_log_free(
 							index->online_log);
 						index->online_log = NULL;
-						ctx->old_table->indexes.start->clear_dummy_log();
+						ctx->old_table->indexes.start->online_log = nullptr;
 						ok = false;
 					});
 
@@ -8356,40 +8358,42 @@ get_error_key_name(
 /** Handle the apply log failure for online DDL operation.
 @param ha_alter_info	handler alter inplace info
 @param altered_table	MySQL table that is being altered
-@param error		error code */
-void ha_innobase_inplace_ctx::log_handle_failure(
+@param error		error code
+@retval false if error value is DB_SUCCESS or
+TRUE in case of error */
+bool ha_innobase_inplace_ctx::log_handle_failure(
 	Alter_inplace_info* ha_alter_info,
 	TABLE* altered_table,
 	dberr_t error)
 {
   ulint err_key= thr_get_trx(thr)->error_key_num;
-  switch (error)
-  {
-    KEY* dup_key;
-    case DB_SUCCESS:
-      break;
-    case DB_DUPLICATE_KEY:
-      if (err_key == ULINT_UNDEFINED)
-        /* This should be the hidden index on FTS_DOC_ID */
-        dup_key= NULL;
-      else
-      {
-        DBUG_ASSERT(err_key < ha_alter_info->key_count);
-        dup_key= &ha_alter_info->key_info_buffer[err_key];
-      }
-      print_keydup_error(altered_table, dup_key, MYF(0));
-      break;
-    case DB_ONLINE_LOG_TOO_BIG:
-      my_error(ER_INNODB_ONLINE_LOG_TOO_BIG, MYF(0),
-               get_error_key_name(err_key, ha_alter_info, new_table));
-      break;
-    case DB_INDEX_CORRUPT:
-      my_error(ER_INDEX_CORRUPT, MYF(0),
-               get_error_key_name(err_key, ha_alter_info, new_table));
-      break;
-    default:
-      my_error_innodb(error, old_table->name.m_name, old_table->flags);
+  switch (error) {
+    KEY *dup_key;
+  case DB_SUCCESS:
+    return false;
+  case DB_DUPLICATE_KEY:
+    if (err_key == ULINT_UNDEFINED)
+      /* This should be the hidden index on FTS_DOC_ID */
+      dup_key= nullptr;
+    else
+    {
+      DBUG_ASSERT(err_key < ha_alter_info->key_count);
+      dup_key= &ha_alter_info->key_info_buffer[err_key];
+    }
+    print_keydup_error(altered_table, dup_key, MYF(0));
+    break;
+  case DB_ONLINE_LOG_TOO_BIG:
+    my_error(ER_INNODB_ONLINE_LOG_TOO_BIG, MYF(0),
+             get_error_key_name(err_key, ha_alter_info, new_table));
+    break;
+  case DB_INDEX_CORRUPT:
+    my_error(ER_INDEX_CORRUPT, MYF(0),
+             get_error_key_name(err_key, ha_alter_info, new_table));
+    break;
+  default:
+    my_error_innodb(error, old_table->name.m_name, old_table->flags);
   }
+  return true;
 }
 
 /** Alter the table structure in-place with operations
@@ -8819,7 +8823,10 @@ inline bool rollback_inplace_alter_table(Alter_inplace_info *ha_alter_info,
         thd_lock_wait_timeout(ctx->trx->mysql_thd);
       const uint save_timeout= innodb_lock_wait_timeout;
       innodb_lock_wait_timeout= ~0U; /* infinite  */
-      ctx->old_table->indexes.start->clear_dummy_log();
+      dict_index_t *old_clust_index= ctx->old_table->indexes.start;
+      old_clust_index->lock.x_lock(SRW_LOCK_CALL);
+      old_clust_index->online_log= nullptr;
+      old_clust_index->lock.x_unlock();
       if (fts_exist)
       {
         const dict_index_t *fts_index= nullptr;
@@ -10810,12 +10817,8 @@ static bool alter_rebuild_apply_log(
 		ctx->new_table->vc_templ = NULL;
 	}
 
-	if (error == DB_SUCCESS) {
-		DBUG_RETURN(false);
-	}
-
-	ctx->log_handle_failure(ha_alter_info, altered_table, error);
-	DBUG_RETURN(true);
+	DBUG_RETURN(ctx->log_handle_failure(
+			ha_alter_info, altered_table, error));
 }
 
 /** Commit or rollback the changes made during
@@ -11046,7 +11049,7 @@ err_index:
 					index->online_log= nullptr;
 					index->lock.x_unlock();
 
-					ctx->old_table->indexes.start->clear_dummy_log();
+					ctx->old_table->indexes.start->online_log= nullptr;
 					if (fts_exist) {
 						purge_sys.resume_FTS();
 					}
@@ -11068,7 +11071,7 @@ err_index:
 				index->lock.x_unlock();
 			}
 
-			ctx->old_table->indexes.start->clear_dummy_log();
+			ctx->old_table->indexes.start->online_log= nullptr;
 		}
 	}
 

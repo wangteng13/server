@@ -4810,7 +4810,10 @@ func_exit:
 			}
 		}
 
-		new_table->indexes.start->clear_dummy_log();
+		dict_index_t *old_clust_index= new_table->indexes.start;
+		old_clust_index->lock.x_lock(SRW_LOCK_CALL);
+		old_clust_index->online_log= nullptr;
+		old_clust_index->lock.x_unlock();
 	}
 
 	DBUG_EXECUTE_IF("ib_index_crash_after_bulk_load", DBUG_SUICIDE(););

@@ -2655,17 +2655,3 @@ trx_undo_read_v_cols(
 
 	ut_ad(ptr == end_ptr);
 }
-
-bool trx_undo_rec_is_equal(roll_ptr_t roll_ptr,
-                           const trx_undo_rec_info *undo_info)
-{
-  bool is_insert;
-  ulint rseg_id;
-  uint16_t offset;
-  uint32_t page_no;
-
-  trx_undo_decode_roll_ptr(roll_ptr, &is_insert, &rseg_id,
-                           &page_no, &offset);
-  return page_no == undo_info->block->page.id().page_no()
-	 && offset == undo_info->offset;
-}

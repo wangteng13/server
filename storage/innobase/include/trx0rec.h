@@ -292,13 +292,6 @@ trx_undo_read_v_idx(
 	bool*			is_undo_log,
 	uint32_t*		field_no);
 
-/** Check whether the given roll ptr matches with the undo log
-@param	roll_ptr	rollback pointer of the record
-@param	undo_info	undo log record information
-@return true if the undo record matches with rollback pointer */
-bool trx_undo_rec_is_equal(roll_ptr_t roll_ptr,
-                           const trx_undo_rec_info *undo_info);
-
 /* Types of an undo log record: these have to be smaller than 16, as the
 compilation info multiplied by 16 is ORed to this value in an undo log
 record */
