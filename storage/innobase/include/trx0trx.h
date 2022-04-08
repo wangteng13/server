@@ -938,7 +938,7 @@ public:
   inline bool rollback_finish();
 private:
   /** Apply any changes to tables for which online DDL is in progress. */
-  ATTRIBUTE_COLD void apply_log() const;
+  ATTRIBUTE_COLD void apply_log();
   /** Process tables that were modified by the committing transaction. */
   inline void commit_tables();
   /** Mark a transaction committed in the main memory data structures. */

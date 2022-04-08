@@ -3005,8 +3005,7 @@ row_log_allocate(
 		/* Assign the clustered index online log to table.
 		It can be used by concurrent DML to identify whether
 		the table has any online DDL */
-		index->table->indexes.start->online_log =
-			reinterpret_cast<row_log_t*>(index);
+		index->table->indexes.start->online_log_make_dummy();
 		log->alter_trx = trx;
 	}
 
@@ -3452,7 +3451,7 @@ row_log_apply_ops(
 
 	ut_ad(dict_index_is_online_ddl(index)
 	      || (index->online_log
-                  && index->online_status == ONLINE_INDEX_COMPLETE));
+		  && index->online_status == ONLINE_INDEX_COMPLETE));
 	ut_ad(!index->is_committed());
 	ut_ad(index->lock.have_x());
 	ut_ad(index->online_log);
@@ -3895,7 +3894,7 @@ by undo log record
 @return version of clustered index record */
 static rec_t *row_log_vers_match(
 	rec_t *rec, dict_index_t *index,
-	rec_offs **offsets, const trx_undo_rec_info *rec_info,
+	rec_offs **offsets, const trx_undo_rec_info &rec_info,
 	mtr_t *mtr, mem_heap_t *heap)
 {
   ut_ad(index->is_primary());
@@ -3904,25 +3903,17 @@ static rec_t *row_log_vers_match(
   rec_t *version= rec;
   while (version != nullptr)
   {
-    roll_ptr_t roll_ptr;
-    if (index->trx_id_offset)
-      roll_ptr= trx_read_roll_ptr(
-        rec + index->trx_id_offset + DATA_TRX_ID_LEN);
-    else
-    {
-      *offsets= rec_get_offsets(version, index, *offsets,
-                                index->n_core_fields, ULINT_UNDEFINED,
-                                &heap);
-      roll_ptr= trx_read_roll_ptr(
-        rec_get_nth_field(version, *offsets, index->db_roll_ptr(), &len));
-      ut_ad(len == DATA_ROLL_PTR_LEN);
-    }
-
-    if (rec_info->is_equal(roll_ptr))
+    *offsets= rec_get_offsets(version, index, *offsets,
+                              index->n_core_fields, ULINT_UNDEFINED,
+                              &heap);
+    roll_ptr_t roll_ptr= trx_read_roll_ptr(
+      rec_get_nth_field(version, *offsets, index->db_roll_ptr(), &len));
+    ut_ad(len == DATA_ROLL_PTR_LEN);
+    if (rec_info.is_equal(roll_ptr))
       return version;
     trx_undo_prev_version_build(rec, mtr, version, index,
                                 *offsets, heap, &prev_version, NULL,
-                                NULL, 0, rec_info);
+                                NULL, 0, &rec_info);
     version= prev_version;
   }
 
@@ -3940,17 +3931,17 @@ undo log record
 @param		heap		memory heap
 @return previous or current clustered index record if it is
 changed by the undo log record */
-static rec_t* row_log_vers_record(const dtuple_t *tuple,
+static rec_t* row_log_vers_record(const dtuple_t &tuple,
                                   dict_index_t *index,
                                   rec_t **clust_rec,
                                   rec_offs **offsets,
-                                  const trx_undo_rec_info *rec_info,
+                                  const trx_undo_rec_info &rec_info,
                                   mtr_t *mtr, mem_heap_t *heap)
 {
   ut_ad(dict_index_is_clust(index));
   btr_pcur_t pcur;
   bool found= row_search_on_row_ref(&pcur, BTR_MODIFY_LEAF,
-                                    index->table, tuple, mtr);
+                                    index->table, &tuple, mtr);
   ut_a(found);
   *clust_rec= btr_pcur_get_rec(&pcur);
 
@@ -3987,10 +3978,11 @@ static void row_log_mark_other_online_index_abort(dict_table_t *table)
   MONITOR_ATOMIC_INC(MONITOR_BACKGROUND_DROP_INDEX);
 }
 
-void row_log_insert(const dtuple_t *tuple,
-                    const trx_undo_rec_info *rec_info,
+void row_log_insert(const dtuple_t &tuple,
+                    const trx_undo_rec_info &rec_info,
                     dict_index_t *clust_index,
-                    mem_heap_t *heap)
+                    ulint type, ulint cmpl_info, const upd_t *update,
+                    trx_undo_rec_t *undo_rec, mem_heap_t *heap)
 {
   DEBUG_SYNC_C("row_log_insert_handle");
   ut_ad(dict_index_is_clust(clust_index));
@@ -4022,7 +4014,7 @@ void row_log_insert(const dtuple_t *tuple,
   dict_table_t *table= clust_index->table;
   clust_index->lock.s_lock(SRW_LOCK_CALL);
   if (clust_index->online_log
-      && clust_index->online_log != reinterpret_cast<row_log_t*>(table)
+      && !clust_index->online_log_is_dummy()
       && clust_index->online_status <= ONLINE_INDEX_CREATION)
   {
     row_log_table_insert(copy_rec, clust_index, offsets);
@@ -4041,12 +4033,11 @@ void row_log_insert(const dtuple_t *tuple,
 
     if (table->n_v_cols)
     {
-      if (rec_info->type == TRX_UNDO_UPD_DEL_REC)
-        row_upd_replace_vcol(row, table, rec_info->update, false,
-                             nullptr,
-                             (rec_info->cmpl_info & UPD_NODE_NO_ORD_CHANGE)
-                             ? nullptr : rec_info->undo_rec);
-      else trx_undo_read_v_cols(table, rec_info->undo_rec, row, false);
+      if (type == TRX_UNDO_UPD_DEL_REC)
+        row_upd_replace_vcol(row, table, update, false, nullptr,
+                             (cmpl_info & UPD_NODE_NO_ORD_CHANGE)
+                             ? nullptr : undo_rec);
+      else trx_undo_read_v_cols(table, undo_rec, row, false);
     }
 
     bool success= true;
@@ -4074,10 +4065,11 @@ void row_log_insert(const dtuple_t *tuple,
   }
 }
 
-void row_log_update(const dtuple_t *tuple,
-                    const trx_undo_rec_info *rec_info,
+void row_log_update(const dtuple_t &tuple,
+                    const trx_undo_rec_info &rec_info,
                     dict_index_t *clust_index,
-                    mem_heap_t *heap)
+                    ulint type, ulint cmpl_info, const upd_t *update,
+                    trx_undo_rec_t *undo_rec, mem_heap_t *heap)
 {
   rec_offs offsets_[REC_OFFS_NORMAL_SIZE];
   rec_offs offsets2_[REC_OFFS_NORMAL_SIZE];
@@ -4093,14 +4085,14 @@ void row_log_update(const dtuple_t *tuple,
   clust_index->lock.s_lock(SRW_LOCK_CALL);
   bool table_rebuild=
     (clust_index->online_log
-     && clust_index->online_log != reinterpret_cast<row_log_t*>(table)
+     && !clust_index->online_log_is_dummy()
      && clust_index->online_status <= ONLINE_INDEX_CREATION);
   clust_index->lock.s_unlock();
 
   mtr.start();
   rec_t *rec;
   rec_t *prev_version;
-  bool is_update= (rec_info->type == TRX_UNDO_UPD_EXIST_REC);
+  bool is_update= (type == TRX_UNDO_UPD_EXIST_REC);
   rec_t *match_rec= row_log_vers_record(
     tuple, clust_index, &rec, &offsets, rec_info, &mtr, heap);
   if (!match_rec)
@@ -4116,7 +4108,7 @@ void row_log_update(const dtuple_t *tuple,
   {
     trx_undo_prev_version_build(rec, &mtr, match_rec, clust_index,
                                 offsets, heap, &prev_version, NULL,
-                                NULL, 0, rec_info);
+                                NULL, 0, &rec_info);
 
     prev_offsets= rec_get_offsets(prev_version, clust_index, prev_offsets,
                                   clust_index->n_core_fields,
@@ -4163,7 +4155,7 @@ void row_log_update(const dtuple_t *tuple,
                  copy_rec, offsets, clust_index->table, NULL, NULL,
                  &new_ext, heap);
   if (table->n_v_cols
-      && !(rec_info->cmpl_info & UPD_NODE_NO_ORD_CHANGE))
+      && !(cmpl_info & UPD_NODE_NO_ORD_CHANGE))
   {
     for (ulint i = 0; i < dict_table_get_n_v_cols(table); i++)
        dfield_get_type(
@@ -4173,15 +4165,15 @@ void row_log_update(const dtuple_t *tuple,
   if (is_update)
   {
     old_row= dtuple_copy(row, heap);
-    row_upd_replace(old_row, &old_ext, clust_index, rec_info->update,
+    row_upd_replace(old_row, &old_ext, clust_index, update,
 		    heap);
   }
 
   if (table->n_v_cols)
-    row_upd_replace_vcol(row, table, rec_info->update, false,
+    row_upd_replace_vcol(row, table, update, false,
                          nullptr,
-                         (rec_info->cmpl_info & UPD_NODE_NO_ORD_CHANGE)
-	                 ? nullptr : rec_info->undo_rec);
+                         (cmpl_info & UPD_NODE_NO_ORD_CHANGE)
+	                 ? nullptr : undo_rec);
 
   bool success= true;
   dict_index_t *index= dict_table_get_next_index(clust_index);

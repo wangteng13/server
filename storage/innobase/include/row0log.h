@@ -243,19 +243,29 @@ row_log_estimate_work(
 @param	tuple		row reference from undo log record
 @param	rec_info	undo log record info
 @param	clust_index	clustered index
+@param  type		undo log record type
+@param  cmpl_info	compiler info on secondary index
+@param	update		update vector
+@param	undo_rec	pointer to remaining undo log record
 @param	heap		memory heap */
-void row_log_insert(const dtuple_t *tuple,
-                    const trx_undo_rec_info *rec_info,
+void row_log_insert(const dtuple_t &tuple,
+                    const trx_undo_rec_info &rec_info,
                     dict_index_t *clust_index,
-                    mem_heap_t *heap);
+                    ulint type, ulint cmpl_info, const upd_t *update,
+                    trx_undo_rec_t *undo_rec, mem_heap_t *heap);
 
 /** Handle the update, delete undo log and apply it on online
 indexes
 @param	tuple		row reference from undo log record
 @param	rec_info	undo log record info
 @param	clust_index	clustered index
+@param	type		undo log record type
+@param	cmpl_info	compiler info on secondary index
+@param	update		update vector
+@param	undo_rec	pointer to remaining undo log record
 @param	heap		memory heap */
-void row_log_update(const dtuple_t *tuple,
-                    const trx_undo_rec_info *rec_info,
+void row_log_update(const dtuple_t &tuple,
+                    const trx_undo_rec_info &rec_info,
                     dict_index_t *clust_index,
-                    mem_heap_t *heap);
+                    ulint type, ulint cmpl_info, const upd_t *update,
+                    trx_undo_rec_t *undo_rec, mem_heap_t *heap);

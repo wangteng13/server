@@ -1408,6 +1408,12 @@ public:
     return online_log == reinterpret_cast<row_log_t*>(
 				const_cast<dict_index_t*>(this));
   }
+
+  /** Assign clustered index online log to dummy value */
+  void online_log_make_dummy()
+  {
+    online_log= reinterpret_cast<row_log_t*>(this);
+  }
 };
 
 /** Detach a virtual column from an index.

@@ -7021,7 +7021,8 @@ error_handling_drop_uncached:
 						row_log_free(
 							index->online_log);
 						index->online_log = NULL;
-						ctx->old_table->indexes.start->online_log = nullptr;
+						ctx->old_table->indexes.start
+							->online_log = nullptr;
 						ok = false;
 					});
 
@@ -11049,7 +11050,8 @@ err_index:
 					index->online_log= nullptr;
 					index->lock.x_unlock();
 
-					ctx->old_table->indexes.start->online_log= nullptr;
+					ctx->old_table->indexes.start
+						->online_log= nullptr;
 					if (fts_exist) {
 						purge_sys.resume_FTS();
 					}

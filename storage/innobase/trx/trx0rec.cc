@@ -2254,9 +2254,9 @@ trx_undo_get_undo_rec_low(
 	ut_ad(rseg->is_persistent());
 
 	if (undo_rec_info
-	    && undo_rec_info->block->page.id().page_no() == page_no) {
+	    && undo_rec_info->block.page.id().page_no() == page_no) {
 		undo_rec = trx_undo_rec_copy(
-			undo_rec_info->block->page.frame + offset, heap);
+			undo_rec_info->block.page.frame + offset, heap);
 	} else {
 		mtr.start();
 

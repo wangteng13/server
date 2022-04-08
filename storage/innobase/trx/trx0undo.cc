@@ -298,15 +298,17 @@ typedef std::map<table_id_t, dict_table_t*> table_id_map;
 @param	table		table to be logged
 @param	heap		memory heap */
 static void trx_undo_rec_apply_insert(trx_undo_rec_t *rec,
-                                      trx_undo_rec_info *rec_info,
+                                      trx_undo_rec_info &rec_info,
                                       dict_table_t *table,
+                                      ulint type,
+                                      ulint cmpl_info,
                                       mem_heap_t *heap)
 {
   dict_index_t *index= dict_table_get_first_index(table);
   const dtuple_t *undo_tuple;
   rec= trx_undo_rec_get_row_ref(rec, index, &undo_tuple, heap);
-  rec_info->undo_rec= rec;
-  row_log_insert(undo_tuple, rec_info, index, heap);
+  row_log_insert(*undo_tuple, rec_info, index,
+                 type, cmpl_info, nullptr, rec, heap);
 }
 
 /** Apply the TRX_UNDO_UPD & TRX_UNDO_DEL undo log record
@@ -315,27 +317,31 @@ static void trx_undo_rec_apply_insert(trx_undo_rec_t *rec,
 @param	table		table which does online ddl
 @param	heap		memory heap */
 static void trx_undo_rec_apply_update(trx_undo_rec_t *rec,
-                                      trx_undo_rec_info *rec_info,
+                                      trx_undo_rec_info &rec_info,
                                       dict_table_t *table,
-                                      mem_heap_t *heap)
+                                      ulint type,
+                                      ulint cmpl_info,
+				      mem_heap_t *heap)
 {
   dict_index_t *index= dict_table_get_first_index(table);
   const dtuple_t *undo_tuple;
   trx_id_t trx_id;
   roll_ptr_t roll_ptr;
   byte info_bits;
+  upd_t *update;
   rec= trx_undo_update_rec_get_sys_cols(rec, &trx_id, &roll_ptr,
                                         &info_bits);
   rec= trx_undo_rec_get_row_ref(rec, index, &undo_tuple, heap);
 
-  rec= trx_undo_update_rec_get_update(rec, index, rec_info->type,
+  rec= trx_undo_update_rec_get_update(rec, index, type,
                                       trx_id, roll_ptr, info_bits,
-                                      heap, &rec_info->update);
-  rec_info->undo_rec= rec;
-  if (rec_info->type == TRX_UNDO_UPD_DEL_REC)
-    row_log_insert(undo_tuple, rec_info, index, heap);
+                                      heap, &update);
+  if (type == TRX_UNDO_UPD_DEL_REC)
+    row_log_insert(*undo_tuple, rec_info, index, type, cmpl_info,
+                   update, rec, heap);
   else
-    row_log_update(undo_tuple, rec_info, index, heap);
+    row_log_update(*undo_tuple, rec_info, index, type, cmpl_info,
+                   update, rec, heap);
 }
 
 /** Apply all DML undo log records to the online DDL tables
@@ -346,7 +352,7 @@ static void trx_undo_rec_apply_update(trx_undo_rec_t *rec,
 				for the undo log record */
 static void trx_undo_rec_apply_log(trx_undo_rec_t *rec,
                                    const table_id_map &online_log_tables,
-                                   trx_undo_rec_info *undo_info,
+                                   trx_undo_rec_info &undo_info,
                                    mem_heap_t *heap)
 {
   ulint type, cmpl_info= 0;
@@ -359,16 +365,16 @@ static void trx_undo_rec_apply_log(trx_undo_rec_t *rec,
   if (it == online_log_tables.end() || !it->second->is_active_ddl())
     return;
 
-  undo_info->assign_value(type, cmpl_info, updated_extern,
-                          undo_no);
   switch(type) {
   case TRX_UNDO_INSERT_REC:
-    trx_undo_rec_apply_insert(ptr, undo_info, it->second, heap);
+    trx_undo_rec_apply_insert(ptr, undo_info, it->second,
+                              type, cmpl_info, heap);
     break;
   case TRX_UNDO_UPD_EXIST_REC:
   case TRX_UNDO_UPD_DEL_REC:
   case TRX_UNDO_DEL_MARK_REC:
-    trx_undo_rec_apply_update(ptr, undo_info, it->second, heap);
+    trx_undo_rec_apply_update(ptr, undo_info, it->second,
+                              type, cmpl_info, heap);
     break;
   default:
     ut_ad(0);
@@ -379,7 +385,7 @@ static void trx_undo_rec_apply_log(trx_undo_rec_t *rec,
 
 
 /** Apply any changes to tables for which online DDL is in progress. */
-ATTRIBUTE_COLD void trx_t::apply_log() const
+ATTRIBUTE_COLD void trx_t::apply_log()
 {
   if (undo_no == 0 || apply_online_log == false)
     return;
@@ -406,12 +412,10 @@ ATTRIBUTE_COLD void trx_t::apply_log() const
                                                      undo->hdr_offset);
     while (rec)
     {
-      trx_undo_rec_info undo_rec_info(id, block, page_offset(rec));
-      trx_undo_rec_apply_log(rec, online_log_tables, &undo_rec_info,
-		             heap);
+      trx_undo_rec_info undo_rec_info(*block, page_offset(rec));
+      trx_undo_rec_apply_log(rec, online_log_tables, undo_rec_info, heap);
       rec= trx_undo_page_get_next_rec(block, page_offset(rec),
-                                      page_id.page_no(),
-                                      undo->hdr_offset);
+                                      page_id.page_no(), undo->hdr_offset);
     }
 
     uint32_t next= mach_read_from_4(TRX_UNDO_PAGE_HDR + TRX_UNDO_PAGE_NODE +
@@ -427,6 +431,7 @@ ATTRIBUTE_COLD void trx_t::apply_log() const
   }
   mtr.commit();
   mem_heap_free(heap);
+  apply_online_log= false;
 }
 
 /*============== UNDO LOG FILE COPY CREATION AND FREEING ==================*/
@@ -1523,6 +1528,6 @@ bool trx_undo_rec_info::is_equal(roll_ptr_t roll_ptr) const
 {
   uint16_t offset= static_cast<uint16_t>(roll_ptr);
   uint32_t page_no= static_cast<uint32_t>(roll_ptr >> 16);
-  return page_no == block->page.id().page_no()
+  return page_no == block.page.id().page_no()
          && offset == this->offset;
 }
