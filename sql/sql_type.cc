@@ -3882,8 +3882,8 @@ in_vector *Type_handler_string_result::make_in_vector(THD *thd,
                                                       const Item_func_in *func,
                                                       uint nargs) const
 {
-  return new (thd->mem_root) in_string(thd, nargs, (qsort2_cmp) srtcmp_in,
-                                       func->compare_collation());
+  return new in_string(nargs, (qsort2_cmp) srtcmp_in,
+                       func->compare_collation());
 
 }
 
@@ -3892,7 +3892,7 @@ in_vector *Type_handler_int_result::make_in_vector(THD *thd,
                                                    const Item_func_in *func,
                                                    uint nargs) const
 {
-  return new (thd->mem_root) in_longlong(thd, nargs);
+  return new in_longlong(nargs);
 }
 
 
@@ -3900,7 +3900,7 @@ in_vector *Type_handler_real_result::make_in_vector(THD *thd,
                                                     const Item_func_in *func,
                                                     uint nargs) const
 {
-  return new (thd->mem_root) in_double(thd, nargs);
+  return new in_double(nargs);
 }
 
 
@@ -3908,7 +3908,7 @@ in_vector *Type_handler_decimal_result::make_in_vector(THD *thd,
                                                        const Item_func_in *func,
                                                        uint nargs) const
 {
-  return new (thd->mem_root) in_decimal(thd, nargs);
+  return new in_decimal(nargs);
 }
 
 
@@ -3916,7 +3916,7 @@ in_vector *Type_handler_time_common::make_in_vector(THD *thd,
                                                     const Item_func_in *func,
                                                     uint nargs) const
 {
-  return new (thd->mem_root) in_time(thd, nargs);
+  return new in_time(nargs);
 }
 
 
@@ -3925,7 +3925,7 @@ Type_handler_temporal_with_date::make_in_vector(THD *thd,
                                                 const Item_func_in *func,
                                                 uint nargs) const
 {
-  return new (thd->mem_root) in_datetime(thd, nargs);
+  return new in_datetime(nargs);
 }
 
 
@@ -3933,7 +3933,7 @@ in_vector *Type_handler_row::make_in_vector(THD *thd,
                                             const Item_func_in *func,
                                             uint nargs) const
 {
-  return new (thd->mem_root) in_row(thd, nargs, 0);
+  return new in_row(nargs, 0);
 }
 
 /***************************************************************************/
