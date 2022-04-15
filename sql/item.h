@@ -6301,10 +6301,18 @@ public:
     }
     return mark_unsupported_function("cache", arg, VCOL_IMPOSSIBLE);
   }
+  bool fix_fields(THD *thd, Item **ref)
+  {
+    fixed= 1;
+    if (example)
+      return example->fix_fields_if_needed(thd, ref);
+    return 0;
+  }
   void cleanup()
   {
     clear();
     Item_basic_constant::cleanup();
+    fixed= 0;
   }
   /**
      Check if saved item has a non-NULL value.

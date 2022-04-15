@@ -1,0 +1,9 @@
+create table t1 (c1 char(1) character set ucs2 collate ucs2_test_ci,
+v1 char(1) character set ucs2 collate ucs2_test_ci as (c1),
+v2 int as (c1 = 'b'),
+v3 int as (v1 = 'b'));
+insert into t1 (c1) values ('a');
+select * from t1 where v1 = 'b';
+c1	v1	v2	v3
+a	a	1	1
+drop table t1;

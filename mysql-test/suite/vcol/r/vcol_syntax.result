@@ -144,7 +144,7 @@ drop table t1;
 # MDEV-26437 (duplicate)
 create table v0 (v2 int not null,
 v1 bigint as (case 'x' when current_user() then v2 end));
-select v2 as v3 from v0 where v1 like 'x' escape 'x';
+select v2 as v3 from v0 where v1 like 'y' escape 'z';
 v3
 insert into v0 (v2) values (-128);
 drop table v0;
@@ -176,15 +176,24 @@ Warning	1292	Incorrect datetime value: 'x'
 Warning	1292	Incorrect datetime value: 'root@localhost'
 drop table t1;
 # MDEV-28089 (duplicate)
-create table t1 (a int , b date as (1 in ('x' ,(database () = 'x' is null) ))) ;
+create table t1 (a int , b date as (1 in ('x' ,(database () = 'y' is null) ))) ;
 select b from t1;
 b
-select a from t1 order by 'x' = b;
+select a from t1 order by 'z' = b;
 a
 drop table t1;
 create table t1 (a int , b date as (1 in ('x' ,(database ()) ))) ;
+Warnings:
+Warning	1292	Truncated incorrect DOUBLE value: 'x'
+Warning	1292	Truncated incorrect DOUBLE value: 'test'
 select b from t1;
 b
-select a from t1 order by 'x' = b;
+Warnings:
+Warning	1292	Truncated incorrect DOUBLE value: 'x'
+Warning	1292	Truncated incorrect DOUBLE value: 'test'
+select a from t1 order by 'y' = b;
 a
+Warnings:
+Warning	1292	Truncated incorrect DOUBLE value: 'x'
+Warning	1292	Truncated incorrect DOUBLE value: 'test'
 drop table t1;
