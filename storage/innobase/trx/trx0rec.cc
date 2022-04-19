@@ -2468,6 +2468,7 @@ trx_undo_prev_version_build(
 
 		if ((update->info_bits & REC_INFO_DELETED_FLAG)
 		    && row_upd_changes_disowned_external(update)) {
+			abort();
 			purge_sys.latch.rd_lock(SRW_LOCK_CALL);
 
 			bool missing_extern = purge_sys.changes_visible(
@@ -2494,6 +2495,7 @@ trx_undo_prev_version_build(
 		following call is safe. */
 		if (!row_upd_index_replace_new_col_vals(entry, *index, update,
 							heap)) {
+			abort();
 			ut_a(v_status & TRX_UNDO_PREV_IN_PURGE);
 			return false;
 		}
@@ -2550,6 +2552,7 @@ trx_undo_prev_version_build(
 			memcpy(rec_get_nth_field(*old_vers, offsets, n, &len),
 			       uf->new_val.data, uf->new_val.len);
 			if (UNIV_UNLIKELY(len != uf->new_val.len)) {
+				abort();
 				ut_ad(len == UNIV_SQL_NULL);
 				ut_ad(!rec_offs_comp(offsets));
 				ut_ad(uf->new_val.len
@@ -2637,6 +2640,7 @@ trx_undo_read_v_cols(
 		This needs to put after trx_undo_rec_get_col_val() so the
 		undo ptr advances */
 		if (field_no == FIL_NULL) {
+			abort();
 			ut_ad(is_virtual);
 			continue;
 		}

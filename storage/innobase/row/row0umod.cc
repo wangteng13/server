@@ -857,6 +857,7 @@ row_undo_mod_upd_del_sec(
 		dtuple_t*	entry;
 
 		if (index->type & DICT_FTS || !index->is_committed()) {
+			abort();
 			dict_table_next_uncorrupted_index(node->index);
 			continue;
 		}

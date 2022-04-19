@@ -1306,6 +1306,7 @@ struct ha_innobase_inplace_ctx : public inplace_alter_handler_ctx
       else
       {
         DBUG_ASSERT(err_key < ha_alter_info->key_count);
+        abort();
         dup_key= &ha_alter_info->key_info_buffer[err_key];
       }
       print_keydup_error(altered_table, dup_key, MYF(0));
@@ -1313,10 +1314,12 @@ struct ha_innobase_inplace_ctx : public inplace_alter_handler_ctx
     case DB_ONLINE_LOG_TOO_BIG:
       my_error(ER_INNODB_ONLINE_LOG_TOO_BIG, MYF(0),
                get_error_key_name(err_key, ha_alter_info, new_table));
+      abort();
       break;
     case DB_INDEX_CORRUPT:
       my_error(ER_INDEX_CORRUPT, MYF(0),
                get_error_key_name(err_key, ha_alter_info, new_table));
+      abort();
       break;
     default:
       my_error_innodb(error, old_table->name.m_name, old_table->flags);
@@ -7206,6 +7209,7 @@ error_handling:
 
 		if (clust_index->online_log) {
 			ut_ad(ctx->online);
+			abort();
 			row_log_abort_sec(clust_index);
 			clust_index->online_status
 				= ONLINE_INDEX_COMPLETE;
@@ -11012,14 +11016,17 @@ lock_fail:
 			for (ulint i = 0; i < ctx->num_to_add_index; i++) {
 				dict_index_t *index= ctx->add_index[i];
 
-				if (index->type & (DICT_FTS | DICT_SPATIAL))
+				if (index->type & (DICT_FTS | DICT_SPATIAL)) {
+					abort();
 					continue;
+				}
 
 				index->lock.x_lock(SRW_LOCK_CALL);
 				if (!index->online_log) {
 					/* online log would've cleared
 					when we detect the error in
 					other index */
+					abort();
 					index->lock.x_unlock();
 					continue;
 				}
@@ -11029,6 +11036,7 @@ lock_fail:
 					preserved to show the error
 					when it happened via
 					row_log_apply() by DML thread */
+					abort();
 					error= row_log_get_error(index);
 err_index:
 					ut_ad(error != DB_SUCCESS);
@@ -11042,6 +11050,7 @@ err_index:
 					ctx->old_table->indexes.start
 						->online_log= nullptr;
 					if (fts_exist) {
+						abort();
 						purge_sys.resume_FTS();
 					}
 					MONITOR_ATOMIC_INC(
@@ -11110,6 +11119,7 @@ err_index:
 		}
 		my_error_innodb(error, table_share->table_name.str, 0);
 		if (fts_exist) {
+			abort();
 			purge_sys.resume_FTS();
 		}
 		DBUG_RETURN(true);
@@ -11139,6 +11149,7 @@ fail:
 			}
 			row_mysql_unlock_data_dictionary(trx);
 			if (fts_exist) {
+				abort();
 				purge_sys.resume_FTS();
 			}
 			trx_start_for_ddl(trx);
