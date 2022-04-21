@@ -1306,7 +1306,6 @@ struct ha_innobase_inplace_ctx : public inplace_alter_handler_ctx
       else
       {
         DBUG_ASSERT(err_key < ha_alter_info->key_count);
-        abort();
         dup_key= &ha_alter_info->key_info_buffer[err_key];
       }
       print_keydup_error(altered_table, dup_key, MYF(0));
@@ -1314,12 +1313,10 @@ struct ha_innobase_inplace_ctx : public inplace_alter_handler_ctx
     case DB_ONLINE_LOG_TOO_BIG:
       my_error(ER_INNODB_ONLINE_LOG_TOO_BIG, MYF(0),
                get_error_key_name(err_key, ha_alter_info, new_table));
-      abort();
       break;
     case DB_INDEX_CORRUPT:
       my_error(ER_INDEX_CORRUPT, MYF(0),
                get_error_key_name(err_key, ha_alter_info, new_table));
-      abort();
       break;
     default:
       my_error_innodb(error, old_table->name.m_name, old_table->flags);
@@ -7198,25 +7195,8 @@ error_handling:
 
 	ctx->trx->rollback();
 
-	if (ctx->need_rebuild()) {
-		/* Free the log for online table rebuild, if
-		one was allocated. */
-
-		dict_index_t* clust_index = dict_table_get_first_index(
-			user_table);
-
-		clust_index->lock.x_lock(SRW_LOCK_CALL);
-
-		if (clust_index->online_log) {
-			ut_ad(ctx->online);
-			abort();
-			row_log_abort_sec(clust_index);
-			clust_index->online_status
-				= ONLINE_INDEX_COMPLETE;
-		}
-
-		clust_index->lock.x_unlock();
-	}
+	ut_ad(!ctx->need_rebuild()
+	      || !user_table->indexes.start->online_log);
 
 	ctx->prebuilt->trx->error_info = NULL;
 	ctx->trx->error_state = DB_SUCCESS;
@@ -8752,6 +8732,8 @@ inline bool rollback_inplace_alter_table(Alter_inplace_info *ha_alter_info,
     (ha_alter_info->handler_ctx);
 
   DBUG_ENTER("rollback_inplace_alter_table");
+
+  DEBUG_SYNC_C("innodb_rollback_inplace_alter_table");
 
   if (!ctx)
     /* If we have not started a transaction yet,
@@ -11016,17 +10998,13 @@ lock_fail:
 			for (ulint i = 0; i < ctx->num_to_add_index; i++) {
 				dict_index_t *index= ctx->add_index[i];
 
-				if (index->type & (DICT_FTS | DICT_SPATIAL)) {
-					abort();
-					continue;
-				}
-
+				ut_ad(!(index->type &
+					(DICT_FTS | DICT_SPATIAL)));
 				index->lock.x_lock(SRW_LOCK_CALL);
 				if (!index->online_log) {
 					/* online log would've cleared
 					when we detect the error in
 					other index */
-					abort();
 					index->lock.x_unlock();
 					continue;
 				}
@@ -11036,7 +11014,6 @@ lock_fail:
 					preserved to show the error
 					when it happened via
 					row_log_apply() by DML thread */
-					abort();
 					error= row_log_get_error(index);
 err_index:
 					ut_ad(error != DB_SUCCESS);
@@ -11050,7 +11027,6 @@ err_index:
 					ctx->old_table->indexes.start
 						->online_log= nullptr;
 					if (fts_exist) {
-						abort();
 						purge_sys.resume_FTS();
 					}
 					MONITOR_ATOMIC_INC(
@@ -11105,6 +11081,10 @@ err_index:
 			error = lock_table_for_trx(index_stats, trx, LOCK_X);
 		}
 	}
+
+	DBUG_EXECUTE_IF("stats_lock_fail",
+			error= DB_LOCK_WAIT;);
+
 	if (error == DB_SUCCESS) {
 		error = lock_sys_tables(trx);
 	}
@@ -11119,7 +11099,6 @@ err_index:
 		}
 		my_error_innodb(error, table_share->table_name.str, 0);
 		if (fts_exist) {
-			abort();
 			purge_sys.resume_FTS();
 		}
 		DBUG_RETURN(true);
@@ -11149,7 +11128,6 @@ fail:
 			}
 			row_mysql_unlock_data_dictionary(trx);
 			if (fts_exist) {
-				abort();
 				purge_sys.resume_FTS();
 			}
 			trx_start_for_ddl(trx);

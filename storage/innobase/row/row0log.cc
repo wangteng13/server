@@ -258,7 +258,6 @@ row_log_block_free(
 @param index	index log to be cleared */
 static void row_log_empty(dict_index_t *index)
 {
-  abort();
   ut_ad(index->lock.have_s());
   row_log_t *log= index->online_log;
 
@@ -323,7 +322,7 @@ bool row_log_online_op(dict_index_t *index, const dtuple_t *tuple,
 
 	log = index->online_log;
 	mysql_mutex_lock(&log->mutex);
-
+start_log:
 	if (trx_id > log->max_trx) {
 		log->max_trx = trx_id;
 	}
@@ -383,7 +382,6 @@ bool row_log_online_op(dict_index_t *index, const dtuple_t *tuple,
 				goto write_failed;
 			/* About to run out of log, InnoDB has to
 			apply the online log for the completed index */
-			abort();
 			index->lock.s_unlock();
 			dberr_t error= row_log_apply(
 				log->alter_trx, index, nullptr, nullptr);
@@ -400,6 +398,8 @@ bool row_log_online_op(dict_index_t *index, const dtuple_t *tuple,
 			if (!index->online_log) {
 				goto err_exit;
 			}
+
+			goto start_log;
 		}
 
 		if (mrec_size == avail_size) {
@@ -2003,7 +2003,6 @@ func_exit_committed:
 		if (error != DB_SUCCESS) {
 			/* Report the erroneous row using the new
 			version of the table. */
-			abort();
 			innobase_row_to_mysql(dup->table, log->table, row);
 		}
 
@@ -3846,7 +3845,6 @@ static void row_log_table_empty(dict_index_t *index)
 dberr_t row_log_get_error(const dict_index_t *index)
 {
   ut_ad(index->online_log);
-  abort();
   return index->online_log->error;
 }
 
@@ -3862,14 +3860,12 @@ void dict_table_t::clear(que_thr_t *thr)
     switch (dict_index_get_online_status(index)) {
     case ONLINE_INDEX_ABORTED:
     case ONLINE_INDEX_ABORTED_DROPPED:
-      abort();
       continue;
 
     case ONLINE_INDEX_COMPLETE:
       break;
 
     case ONLINE_INDEX_CREATION:
-      abort();
       index->lock.s_lock(SRW_LOCK_CALL);
       if (dict_index_get_online_status(index) == ONLINE_INDEX_CREATION)
       {
@@ -3936,7 +3932,6 @@ static void row_log_mark_other_online_index_abort(dict_table_t *table)
         && index->online_status <= ONLINE_INDEX_CREATION
         && !index->is_corrupted())
     {
-      abort();
       index->lock.x_lock(SRW_LOCK_CALL);
       row_log_abort_sec(index);
       index->type|= DICT_CORRUPT;
@@ -3966,14 +3961,7 @@ void UndorecApplier::log_insert(const dtuple_t &tuple,
   mtr.start();
   rec_t *rec;
   rec_t *match_rec= get_old_rec(tuple, clust_index, &rec, &offsets, &mtr);
-  if (!match_rec)
-  {
-    /* Undo log record doesn't fit into the undo log page.
-    In that case, clustered index record won't be found */
-    mtr.commit();
-    return;
-  }
-
+  ut_a(match_rec);
   rec_t *copy_rec= match_rec;
   if (match_rec == rec)
   {
@@ -4029,7 +4017,6 @@ void UndorecApplier::log_insert(const dtuple_t &tuple,
       index->lock.s_unlock();
       if (!success)
       {
-        abort();
         row_log_mark_other_online_index_abort(index->table);
         return;
       }
@@ -4066,13 +4053,7 @@ void UndorecApplier::log_update(const dtuple_t &tuple,
   bool is_update= (type == TRX_UNDO_UPD_EXIST_REC);
   rec_t *match_rec= get_old_rec(
     tuple, clust_index, &rec, &offsets, &mtr);
-  if (!match_rec)
-  {
-    abort();
-    mtr.commit();
-    return;
-  }
-
+  ut_a(match_rec);
   if (table_rebuild)
   {
     rec_t *copy_rec= match_rec;
@@ -4110,8 +4091,7 @@ void UndorecApplier::log_update(const dtuple_t &tuple,
   row_ext_t *new_ext;
   if (match_rec != rec)
   {
-    abort();
-    row= row_build(ROW_COPY_POINTERS, clust_index, rec, offsets,
+    row= row_build(ROW_COPY_POINTERS, clust_index, match_rec, offsets,
                    clust_index->table, NULL, NULL, &new_ext, heap);
   }
   else
@@ -4171,7 +4151,6 @@ void UndorecApplier::log_update(const dtuple_t &tuple,
     index->lock.s_unlock();
     if (!success)
     {
-      abort();
       row_log_mark_other_online_index_abort(index->table);
       return;
     }
