@@ -6396,7 +6396,6 @@ static bool write_log_changed_partitions0(ALTER_PARTITION_PARAM_TYPE *lpt,
 class Alter_partition_action : public ALTER_PARTITION_PARAM_TYPE
 {
 protected:
-  uint *next_entry;
   const char *path;
   uint name_variant;
 
@@ -6407,12 +6406,20 @@ protected:
   char new_name[FN_REFLEN + 1];
   List<partition_element> *parts;
 
+
 public:
+  enum Phase
+  {
+    DROP_BACKUPS= 0,
+    RENAME_TO_BACKUPS,
+    DROP_ADDED_PARTS,
+    NO_PHASE= 255
+  } phase;
+
   Alter_partition_action(ALTER_PARTITION_PARAM_TYPE *lpt,
-                         uint *next_entry, const char *path,
+                         const char *path,
                          List<partition_element> *reorg_parts) :
                          ALTER_PARTITION_PARAM_TYPE(*lpt),
-                            next_entry(next_entry),
                             path(path),
                             parts(reorg_parts ? reorg_parts : &lpt->part_info->partitions)
   {
@@ -6420,13 +6427,12 @@ public:
   }
 
   virtual ~Alter_partition_action() {}
-  bool iterate();
+  bool iterate(Phase phase= NO_PHASE);
   virtual void set_name_variant(partition_element *) {}
   virtual bool check_state(partition_element *part_elem)= 0;
 
   virtual bool process_partition(partition_element *part_elem)
   {
-    ddl_log_entry.next_entry= *next_entry;
     lex_string_set(&ddl_log_entry.handler_name,
                     ha_resolve_storage_engine_name(part_elem->engine_type));
     if (create_partition_name(part_name, sizeof(part_name), path,
@@ -6444,9 +6450,9 @@ public:
     char tmp_path[FN_REFLEN + 1];
 
     ddl_log_entry.action_type= DDL_LOG_DELETE_ACTION;
-    ddl_log_entry.next_entry= *next_entry;
+    ddl_log_entry.next_entry= part_info->list ? part_info->list->entry_pos : 0;
     lex_string_set(&ddl_log_entry.handler_name,
-                    ha_resolve_storage_engine_name(sub_elem->
+                   ha_resolve_storage_engine_name(sub_elem->
                                                   engine_type));
     if (create_subpartition_name(tmp_path, sizeof(tmp_path), path,
                                   part_elem->partition_name,
@@ -6455,7 +6461,6 @@ public:
     lex_string_set(&ddl_log_entry.name, tmp_path);
     if (ddl_log_write_entry(&ddl_log_entry, &log_entry))
       return true;
-    *next_entry= log_entry->entry_pos;
     sub_elem->log_entry= log_entry;
     ddl_log_add_entry(part_info, log_entry);
     return false;
@@ -6474,8 +6479,8 @@ public:
            part_elem->part_state == PART_CHANGED;
   }
 
-  Action_convert_in(ALTER_PARTITION_PARAM_TYPE *lpt, uint *next_entry, const char *path) :
-                    Alter_partition_action(lpt, next_entry, path, NULL)
+  Action_convert_in(ALTER_PARTITION_PARAM_TYPE *lpt, const char *path) :
+                    Alter_partition_action(lpt, path, NULL)
   {
     build_table_filename(new_name, sizeof(new_name) - 1, lpt->alter_ctx->new_db.str,
                         lpt->alter_ctx->new_name.str, "", 0);
@@ -6484,6 +6489,7 @@ public:
 
   bool process_partition(partition_element *part_elem)
   {
+    DBUG_ASSERT(phase == NO_PHASE);
     DBUG_ASSERT(new_name);
     DBUG_ASSERT(part_elem->part_state == PART_TO_BE_ADDED);
 
@@ -6493,10 +6499,10 @@ public:
     ddl_log_entry.action_type= DDL_LOG_RENAME_ACTION;
     ddl_log_entry.from_name= { part_name, strlen(part_name) };
     ddl_log_entry.name= { new_name, strlen(new_name) };
+    ddl_log_entry.next_entry= part_info->list ? part_info->list->entry_pos : 0;
 
     if (ddl_log_write_entry(&ddl_log_entry, &log_entry))
       return true;
-    *next_entry= log_entry->entry_pos;
     part_elem->log_entry= log_entry;
     ddl_log_add_entry(part_info, log_entry);
 
@@ -6520,6 +6526,7 @@ public:
 
   bool process_partition(partition_element *part_elem)
   {
+    DBUG_ASSERT(phase == NO_PHASE);
     DBUG_ASSERT(new_name);
     DBUG_ASSERT(part_elem->part_state == PART_TO_BE_DROPPED);
 
@@ -6529,10 +6536,10 @@ public:
     ddl_log_entry.action_type= DDL_LOG_RENAME_ACTION;
     ddl_log_entry.from_name= { new_name, strlen(new_name) };
     ddl_log_entry.name= { part_name, strlen(part_name) };
+    ddl_log_entry.next_entry= part_info->list ? part_info->list->entry_pos : 0;
 
     if (ddl_log_write_entry(&ddl_log_entry, &log_entry))
       return true;
-    *next_entry= log_entry->entry_pos;
     part_elem->log_entry= log_entry;
     ddl_log_add_entry(part_info, log_entry);
 
@@ -6544,13 +6551,6 @@ public:
 class Action_drop : public Alter_partition_action
 {
 public:
-  enum Mode
-  {
-    DROP_BACKUPS= 0,
-    RENAME_TO_BACKUPS,
-    DROP_ADDED_PARTS
-  } phase;
-
   using Alter_partition_action::Alter_partition_action;
 
   bool check_state(partition_element *part_elem)
@@ -6588,28 +6588,40 @@ public:
         return true;
     }
 
+    DDL_LOG_STATE *output_chain;
+
     switch (phase)
     {
     case DROP_BACKUPS:
       ddl_log_entry.action_type= DDL_LOG_DELETE_ACTION;
       ddl_log_entry.name= { new_name, strlen(new_name) };
+      output_chain= rollback_chain;
       break;
     case RENAME_TO_BACKUPS:
       ddl_log_entry.action_type= DDL_LOG_RENAME_ACTION;
       ddl_log_entry.from_name= { part_name, strlen(part_name) };
       ddl_log_entry.name= { new_name, strlen(new_name) };
+      output_chain= part_info;
       break;
     case DROP_ADDED_PARTS:
       ddl_log_entry.action_type= DDL_LOG_DELETE_ACTION;
       ddl_log_entry.name= { part_name, strlen(part_name) };
+      output_chain= part_info;
       break;
+    default:
+      DBUG_ASSERT(0);
+      return true;
     }
 
+    ddl_log_entry.next_entry= output_chain->list ? output_chain->list->entry_pos : 0;
     if (ddl_log_write_entry(&ddl_log_entry, &log_entry))
       return true;
-    *next_entry= log_entry->entry_pos;
     part_elem->log_entry= log_entry;
-    ddl_log_add_entry(part_info, log_entry);
+    ddl_log_add_entry(output_chain, log_entry);
+
+    if (phase == RENAME_TO_BACKUPS)
+    {
+    }
 
     return false;
   }
@@ -6623,8 +6635,8 @@ public:
 class Action_change : public Alter_partition_action
 {
 public:
-  Action_change(ALTER_PARTITION_PARAM_TYPE *lpt, uint *next_entry, const char *path) :
-                Alter_partition_action(lpt, next_entry, path, NULL)
+  Action_change(ALTER_PARTITION_PARAM_TYPE *lpt, const char *path) :
+                Alter_partition_action(lpt, path, NULL)
   {
   }
 
@@ -6638,10 +6650,10 @@ public:
 
   bool process_partition(partition_element *part_elem)
   {
+    DBUG_ASSERT(phase == NO_PHASE);
     char tmp_path[FN_REFLEN + 1];
     char normal_path[FN_REFLEN + 1];
 
-    ddl_log_entry.next_entry= *next_entry;
     lex_string_set(&ddl_log_entry.handler_name,
                     ha_resolve_storage_engine_name(part_elem->engine_type));
     if (create_partition_name(tmp_path, sizeof(tmp_path), path,
@@ -6657,9 +6669,9 @@ public:
       ddl_log_entry.action_type= DDL_LOG_REPLACE_ACTION;
     else
       ddl_log_entry.action_type= DDL_LOG_RENAME_ACTION;
+    ddl_log_entry.next_entry= part_info->list ? part_info->list->entry_pos : 0;
     if (ddl_log_write_entry(&ddl_log_entry, &log_entry))
       return true;
-    *next_entry= log_entry->entry_pos;
     part_elem->log_entry= log_entry;
     ddl_log_add_entry(part_info, log_entry);
     return false;
@@ -6671,7 +6683,6 @@ public:
     char tmp_path[FN_REFLEN + 1];
     char normal_path[FN_REFLEN + 1];
 
-    ddl_log_entry.next_entry= *next_entry;
     lex_string_set(&ddl_log_entry.handler_name,
                     ha_resolve_storage_engine_name(sub_elem->
                                                   engine_type));
@@ -6690,10 +6701,10 @@ public:
       ddl_log_entry.action_type= DDL_LOG_REPLACE_ACTION;
     else
       ddl_log_entry.action_type= DDL_LOG_RENAME_ACTION;
+    ddl_log_entry.next_entry= part_info->list ? part_info->list->entry_pos : 0;
     if (ddl_log_write_entry(&ddl_log_entry, &log_entry))
       return true;
 
-    *next_entry= log_entry->entry_pos;
     sub_elem->log_entry= log_entry;
     ddl_log_add_entry(part_info, log_entry);
     return false;
@@ -6701,8 +6712,9 @@ public:
 };
 
 
-bool Alter_partition_action::iterate()
+bool Alter_partition_action::iterate(Phase phase_arg)
 {
+  phase= phase_arg;
   List_iterator<partition_element> part_it(*parts);
   DBUG_ENTER("Alter_partition_action::iterate");
   partition_element *part_elem;
@@ -6734,35 +6746,34 @@ bool Alter_partition_action::iterate()
 }
 
 
+// FIXME: deprecate
 inline
 static bool write_log_dropped_partitions(ALTER_PARTITION_PARAM_TYPE *lpt,
-                                         uint *next_entry, const char *path,
-                                         Action_drop::Mode mode,
+                                         const char *path,
+                                         Alter_partition_action::Phase mode,
                                          List<partition_element> *temp_partitions= NULL)
 {
   bool res;
-  Action_drop act(lpt, next_entry, path, temp_partitions);
-  act.phase= mode;
-  res= act.iterate();
+  Action_drop act(lpt, path, temp_partitions);
+  res= act.iterate(mode);
   if (res || mode != Action_drop::DROP_BACKUPS)
     return res;
-  act.phase= Action_drop::RENAME_TO_BACKUPS;
-  return act.iterate();
+  return act.iterate(Action_drop::RENAME_TO_BACKUPS);
 }
 
 
 inline
 static bool write_log_changed_partitions(ALTER_PARTITION_PARAM_TYPE *lpt,
-                                         uint *next_entry, const char *path)
+                                         const char *path)
 {
-  Action_change act(lpt, next_entry, path);
+  Action_change act(lpt, path);
   return act.iterate();
 }
 
 
 inline
 static bool write_log_convert_partition(ALTER_PARTITION_PARAM_TYPE *lpt,
-                                        uint *next_entry, const char *path)
+                                        const char *path)
 {
   bool res;
   const ulong f= lpt->alter_info->partition_flags;
@@ -6771,12 +6782,12 @@ static bool write_log_convert_partition(ALTER_PARTITION_PARAM_TYPE *lpt,
   DDL_LOG_MEMORY_ENTRY *main_entry= lpt->part_info->main_entry;
   if (f & ALTER_PARTITION_CONVERT_IN)
   {
-    Action_convert_in act(lpt, next_entry, path);
+    Action_convert_in act(lpt, path);
     res= act.iterate();
   }
   else
   {
-    Action_convert_out act(lpt, next_entry, path);
+    Action_convert_out act(lpt, path);
     res= act.iterate();
   }
   /*
@@ -6870,22 +6881,26 @@ bool write_log_drop_shadow_frm(ALTER_PARTITION_PARAM_TYPE *lpt)
     install the shadow frm file and remove the old frm file.
 */
 
-static bool write_log_drop_partition(ALTER_PARTITION_PARAM_TYPE *lpt, DDL_LOG_STATE *cleanup_chain)
+static bool prepare_drop_partitions(ALTER_PARTITION_PARAM_TYPE *lpt,
+                                    DDL_LOG_STATE *cleanup_chain)
 {
   partition_info *part_info= lpt->part_info;
   char tmp_path[FN_REFLEN + 1];
   char bak_path[FN_REFLEN + 1];
   char path[FN_REFLEN + 1];
-  uint next_entry= 0; // FIXME: remove
-  DBUG_ENTER("write_log_drop_partition");
 
   build_table_filename(path, sizeof(path) - 1, lpt->db.str, lpt->table_name.str, "", 0);
   build_table_shadow_filename(tmp_path, sizeof(tmp_path) - 1, lpt);
   build_table_shadow_filename(bak_path, sizeof(bak_path) - 1, lpt, true);
   mysql_mutex_lock(&LOCK_gdl);
-  if (write_log_dropped_partitions(lpt, &next_entry, (const char*)path,
-                                   Action_drop::DROP_BACKUPS))
-    goto error;
+
+  Action_drop act(lpt, path, NULL);
+  act.phase= Action_drop::DROP_BACKUPS;
+  if (act.iterate())
+    return true;
+  act.phase= Action_drop::RENAME_TO_BACKUPS;
+  if (act.iterate())
+    return true;
 
   if (ddl_log_delete_frm(part_info, (const char*) bak_path))
     goto error;
@@ -6900,13 +6915,13 @@ static bool write_log_drop_partition(ALTER_PARTITION_PARAM_TYPE *lpt, DDL_LOG_ST
                                   &part_info->execute_entry))
     goto error;
   mysql_mutex_unlock(&LOCK_gdl);
-  DBUG_RETURN(FALSE);
+  return false;
 
 error:
   release_part_info_log_entries(part_info->list);
   mysql_mutex_unlock(&LOCK_gdl);
   my_error(ER_DDL_LOG_ERROR, MYF(0));
-  DBUG_RETURN(TRUE);
+  return true;
 }
 
 
@@ -6915,16 +6930,14 @@ static bool write_log_convert_partition(ALTER_PARTITION_PARAM_TYPE *lpt)
   partition_info *part_info= lpt->part_info;
   char tmp_path[FN_REFLEN + 1];
   char path[FN_REFLEN + 1];
-  uint next_entry= part_info->list ? part_info->list->entry_pos : 0;
 
   build_table_filename(path, sizeof(path) - 1, lpt->db.str, lpt->table_name.str, "", 0);
   build_table_shadow_filename(tmp_path, sizeof(tmp_path) - 1, lpt);
 
   mysql_mutex_lock(&LOCK_gdl);
 
-  if (write_log_convert_partition(lpt, &next_entry, (const char*)path))
+  if (write_log_convert_partition(lpt, (const char*)path))
     goto error;
-  DBUG_ASSERT(next_entry == part_info->list->entry_pos);
   if (ddl_log_write_execute_entry(part_info->list->entry_pos, 0,
                                   &part_info->execute_entry))
     goto error;
@@ -6962,7 +6975,6 @@ static bool write_log_add_change_partition(ALTER_PARTITION_PARAM_TYPE *lpt)
   DDL_LOG_MEMORY_ENTRY *log_entry;
   char tmp_path[FN_REFLEN + 1];
   char path[FN_REFLEN + 1];
-  uint next_entry= 0; // FIXME: remove
   DDL_LOG_MEMORY_ENTRY *old_first_log_entry= part_info->list;
   /* write_log_drop_shadow_frm(lpt) must have been run first */
   DBUG_ASSERT(old_first_log_entry);
@@ -6972,10 +6984,11 @@ static bool write_log_add_change_partition(ALTER_PARTITION_PARAM_TYPE *lpt)
   build_table_shadow_filename(tmp_path, sizeof(tmp_path) - 1, lpt);
   mysql_mutex_lock(&LOCK_gdl);
 
-  /* Relink the previous drop shadow frm entry */
+  /* FIXME: Relink the previous drop shadow frm entry
   if (old_first_log_entry)
     next_entry= old_first_log_entry->entry_pos;
-  if (write_log_dropped_partitions(lpt, &next_entry, (const char*)path,
+  */
+  if (write_log_dropped_partitions(lpt, (const char*)path,
                                    Action_drop::DROP_ADDED_PARTS))
     goto error;
   log_entry= part_info->list;
@@ -7025,7 +7038,6 @@ static bool write_log_final_change_partition(ALTER_PARTITION_PARAM_TYPE *lpt)
   char path[FN_REFLEN + 1];
   char shadow_path[FN_REFLEN + 1];
   DDL_LOG_MEMORY_ENTRY *old_first_log_entry= part_info->list;
-  uint next_entry= 0; // FIXME: remove
   DBUG_ENTER("write_log_final_change_partition");
 
   /*
@@ -7036,9 +7048,9 @@ static bool write_log_final_change_partition(ALTER_PARTITION_PARAM_TYPE *lpt)
   build_table_filename(path, sizeof(path) - 1, lpt->db.str, lpt->table_name.str, "", 0);
   build_table_shadow_filename(shadow_path, sizeof(shadow_path) - 1, lpt);
   mysql_mutex_lock(&LOCK_gdl);
-  if (write_log_changed_partitions(lpt, &next_entry, (const char*)path))
+  if (write_log_changed_partitions(lpt, (const char*)path))
     goto error;
-  if (write_log_dropped_partitions(lpt, &next_entry, (const char*)path,
+  if (write_log_dropped_partitions(lpt, (const char*)path,
                                    Action_drop::DROP_ADDED_PARTS,
                                    lpt->alter_info->partition_flags & ALTER_PARTITION_REORGANIZE ?
                                    &lpt->part_info->temp_partitions : NULL))
@@ -7052,6 +7064,7 @@ static bool write_log_final_change_partition(ALTER_PARTITION_PARAM_TYPE *lpt)
   if (ddl_log_write_execute_entry(log_entry->entry_pos, 0,
                                   &exec_log_entry))
     goto error;
+  // FIXME: why? Remove release_part_info_log_entries()
   release_part_info_log_entries(old_first_log_entry);
   mysql_mutex_unlock(&LOCK_gdl);
   DBUG_RETURN(FALSE);
@@ -7625,9 +7638,11 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
   }
   else if (alter_info->partition_flags & ALTER_PARTITION_DROP)
   {
-    DDL_LOG_STATE cleanup_chain;
+    DDL_LOG_STATE rollback_chain;
     bool res= false;
-    bzero(&cleanup_chain, sizeof(cleanup_chain));
+    bzero(&rollback_chain, sizeof(rollback_chain));
+    // FIXME: remove cleanup_chain argument
+    lpt->rollback_chain= &rollback_chain;
 
     /*
        part_info chain contains roll forward actions,
@@ -7637,41 +7652,55 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
        FIXME: what happens when cleanup_chain then part_info chain are executed?
     */
 
-    if (write_log_drop_frm(lpt, &cleanup_chain, false) ||
+    if (write_log_drop_frm(lpt, &rollback_chain, false) ||
         ERROR_INJECT("drop_partition_1") ||
         mysql_write_frm(lpt, WFRM_WRITE_SHADOW) ||
         ERROR_INJECT("drop_partition_2") ||
         wait_while_table_is_used(thd, table, HA_EXTRA_NOT_USED) ||
         ERROR_INJECT("drop_partition_3") ||
-        write_log_drop_partition(lpt, &cleanup_chain) ||
-        ERROR_INJECT("drop_partition_4") ||
         alter_close_table(lpt) ||
+        ERROR_INJECT("drop_partition_4") ||
+        prepare_drop_partitions(lpt, &rollback_chain) ||
         ERROR_INJECT("drop_partition_5") ||
         log_partition_alter_to_ddl_log(lpt) ||
-        ERROR_INJECT("drop_partition_6") ||
-        ((!thd->lex->no_write_to_binlog) &&
-          ((thd->binlog_xid= thd->query_id),
-           ddl_log_update_xid(&cleanup_chain, thd->binlog_xid),
-           write_bin_log(thd, false, thd->query(), thd->query_length()),
-           (thd->binlog_xid= 0))))
+        ERROR_INJECT("drop_partition_6"))
     {
       ddl_log_complete(lpt->part_info);
-      // FIXME: DDL_LOG_ERR_WARN
-      (void) ddl_log_revert(thd, &cleanup_chain);
+      (void) ddl_log_revert(thd, &rollback_chain, DDL_LOG_ERR_WARN);
       (void) alter_partition_lock_handling(lpt);
       goto err;
     }
 
-    if (ERROR_INJECT("drop_partition_7"))
-      res= true;
-    ddl_log_complete(&cleanup_chain);
-    if (ERROR_INJECT("drop_partition_8"))
-      res= true;
-    res|= ddl_log_revert(thd, lpt->part_info, DDL_LOG_ERR_ROLLBACK);
+    // FIXME: link them at first write_execute_entry()
+    ddl_log_link_chains(part_info, &rollback_chain);
+
+    res= ERROR_INJECT("drop_partition_7") ||
+          ddl_log_revert(thd, lpt->part_info, DDL_LOG_ERR_ROLLBACK);
+
+    if (!res && !thd->lex->no_write_to_binlog)
+    {
+      thd->binlog_xid= thd->query_id;
+      ddl_log_update_xid(&rollback_chain, thd->binlog_xid),
+      // FIXME: generate binlog output in test
+      res= ERROR_INJECT("drop_partition_8") ||
+           write_bin_log(thd, false, thd->query(), thd->query_length());
+      thd->binlog_xid= 0;
+    }
+
+    if (res)
+    {
+      ERROR_INJECT("drop_partition_9");
+      (void) ddl_log_revert(thd, &rollback_chain, DDL_LOG_ERR_WARN);
+    }
+    else
+    {
+      res= ERROR_INJECT("drop_partition_9");
+      ddl_log_complete(&rollback_chain);
+    }
 
     if (alter_partition_lock_handling(lpt) ||
         res ||
-        ERROR_INJECT("drop_partition_9"))
+        ERROR_INJECT("drop_partition_10"))
       goto err;
   }
   else if (alter_info->partition_flags & ALTER_PARTITION_CONVERT_OUT)
