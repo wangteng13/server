@@ -58,7 +58,6 @@
 #include <m_ctype.h>
 #include "transaction.h"
 #include "debug_sync.h"
-#include "debug.h"
 
 #include "sql_base.h"                   // close_all_tables_for_name
 #include "sql_table.h"                  // build_table_filename,
@@ -7503,6 +7502,25 @@ static bool check_table_data(ALTER_PARTITION_PARAM_TYPE *lpt)
 }
 
 
+bool alter_partition_binlog(ALTER_PARTITION_PARAM_TYPE *lpt)
+{
+  bool res;
+  THD *thd= lpt->thd;
+  if (thd->lex->no_write_to_binlog)
+    return false;
+
+  thd->binlog_xid= thd->query_id;
+  res= ERROR_INJECT("alter_partition_binlog_1") ||
+        ddl_log_update_xid(lpt->rollback_chain, thd->binlog_xid);
+  // FIXME: generate binlog output in test
+  if (!res)
+    res= ERROR_INJECT("alter_partition_binlog_2") ||
+          write_bin_log(thd, false, thd->query(), thd->query_length());
+  thd->binlog_xid= 0;
+  return res;
+}
+
+
 /**
   Actually perform the change requested by ALTER TABLE of partitions
   previously prepared.
@@ -7661,13 +7679,7 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
         mysql_write_frm(lpt, WFRM_INSTALL_SHADOW|WFRM_BACKUP_ORIGINAL) ||
         ERROR_INJECT("drop_partition_8") ||
         log_partition_alter_to_ddl_log(lpt) ||
-        ERROR_INJECT("drop_partition_9") ||
-        ((!thd->lex->no_write_to_binlog) &&
-          ((thd->binlog_xid= thd->query_id),
-           ddl_log_update_xid(&rollback_chain, thd->binlog_xid),
-           ERROR_INJECT("drop_partition_10"),
-           write_bin_log(thd, false, thd->query(), thd->query_length()),
-           (thd->binlog_xid= 0))))
+        alter_partition_binlog(lpt))
     {
       ddl_log_complete(&cleanup_chain);
       // FIXME: test when revert fails
@@ -7676,36 +7688,10 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
       goto err;
     }
 
-    debug_crash_here("crash_drop_partition_11");
+    CRASH_INJECT("drop_partition_9");
     ddl_log_complete(&rollback_chain);
-    debug_crash_here("crash_drop_partition_12");
+    CRASH_INJECT("drop_partition_10");
     (void) ddl_log_revert(thd, &cleanup_chain, DDL_LOG_ERR_WARN);
-
-#if 0
-    if (!res && !thd->lex->no_write_to_binlog)
-    {
-      thd->binlog_xid= thd->query_id;
-      ddl_log_update_xid(&rollback_chain, thd->binlog_xid),
-      // FIXME: generate binlog output in test
-      res= ERROR_INJECT("drop_partition_8") ||
-           write_bin_log(thd, false, thd->query(), thd->query_length());
-      thd->binlog_xid= 0;
-    }
-
-    // FIXME: use finalize_ddl()?
-    if (res)
-    {
-      ddl_log_complete(&cleanup_chain);
-      ERROR_INJECT("drop_partition_9");
-      (void) ddl_log_revert(thd, &rollback_chain, DDL_LOG_ERR_WARN);
-    }
-    else
-    {
-      res= ERROR_INJECT("drop_partition_9");
-      ddl_log_complete(&rollback_chain);
-      (void) ddl_log_revert(thd, &cleanup_chain, DDL_LOG_ERR_WARN);
-    }
-#endif
 
     if (alter_partition_lock_handling(lpt))
       goto err;
