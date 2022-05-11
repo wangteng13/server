@@ -6054,8 +6054,16 @@ static int get_schema_column_record(THD *thd, TABLE_LIST *tables,
 
 #ifndef NO_EMBEDDED_ACCESS_CHECKS
     uint col_access;
-    check_access(thd,SELECT_ACL, db_name->str,
+    check_access(thd, SELECT_ACL, db_name->str,
                  &tables->grant.privilege, 0, 0, MY_TEST(tables->schema_table));
+    // We need to have at least SELECT_ACL to access data, otherwise raise the error
+    TABLE_LIST table_acl_check;
+    bzero((char*) &table_acl_check, sizeof(table_acl_check));
+    table_acl_check.db= *db_name;
+    table_acl_check.table_name= *table_name;
+    table_acl_check.grant.privilege= tables->grant.privilege;
+    check_grant(thd, SELECT_ACL, &table_acl_check, TRUE, 1, FALSE);
+
     col_access= get_column_grant(thd, &tables->grant,
                                  db_name->str, table_name->str,
                                  field->field_name.str) & COL_ACLS;
@@ -6716,6 +6724,18 @@ static int get_schema_stat_record(THD *thd, TABLE_LIST *tables,
   {
     TABLE *show_table= tables->table;
     KEY *key_info=show_table->s->key_info;
+#ifndef NO_EMBEDDED_ACCESS_CHECKS
+    check_access(thd, SELECT_ACL, db_name->str,
+                 &tables->grant.privilege, 0, 0, MY_TEST(tables->schema_table));
+    // We need to have at least SELECT_ACL to access data, otherwise raise the error
+    TABLE_LIST table_acl_check;
+    bzero((char*) &table_acl_check, sizeof(table_acl_check));
+    table_acl_check.db= *db_name;
+    table_acl_check.table_name= *table_name;
+    table_acl_check.table_name= *table_name;
+    table_acl_check.grant.privilege= tables->grant.privilege;
+    check_grant(thd, SELECT_ACL, &table_acl_check, TRUE, 1, FALSE);
+#endif
     if (show_table->file)
     {
       (void) read_statistics_for_tables(thd, tables);

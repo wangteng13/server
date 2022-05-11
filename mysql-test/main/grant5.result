@@ -181,4 +181,134 @@ GRANT USAGE ON *.* TO `test-user`@`%`
 SET DEFAULT ROLE `r``o'l"e` FOR `test-user`@`%`
 DROP ROLE `r``o'l"e`;
 DROP USER 'test-user';
+#
+# MDEV-28455: CREATE TEMPORARY TABLES privilege
+#            is insufficient for SHOW COLUMNS
+#
+create database db;
+create user foo@localhost;
+create user bar@localhost;
+create user monitor@localhost;
+grant create temporary tables on db.* to foo@localhost;
+grant create on db.* to bar@localhost;
+grant create temporary tables, select on db.* to monitor@localhost;
+# Check CREATE_ACL
+connect  con1,localhost,bar,,db;
+create temporary table tmpbar (b int, key(b));
+ERROR 42000: Access denied for user 'bar'@'localhost' to database 'db'
+create table bar (b int, key(b));
+show index in bar;
+ERROR 42000: SELECT command denied to user 'bar'@'localhost' for table 'bar'
+show columns in bar;
+ERROR 42000: SELECT command denied to user 'bar'@'localhost' for table 'bar'
+show create table bar;
+Table	Create Table
+bar	CREATE TABLE `bar` (
+  `b` int(11) DEFAULT NULL,
+  KEY `b` (`b`)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+# Check CREATE_TMP_ACL
+connect  con2,localhost,foo,,db;
+create temporary table tmp (a int, key(a));
+create table t (t int);
+ERROR 42000: CREATE command denied to user 'foo'@'localhost' for table 't'
+show index in tmp;
+ERROR 42000: SELECT command denied to user 'foo'@'localhost' for table 'tmp'
+show columns in tmp;
+ERROR 42000: SELECT command denied to user 'foo'@'localhost' for table 'tmp'
+show create table tmp;
+Table	Create Table
+tmp	CREATE TEMPORARY TABLE `tmp` (
+  `a` int(11) DEFAULT NULL,
+  KEY `a` (`a`)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+# Check user with SELECT_ACL privilege can see tables
+connect  con3,localhost,monitor,,db;
+show grants;
+Grants for monitor@localhost
+GRANT USAGE ON *.* TO `monitor`@`localhost`
+GRANT SELECT, CREATE TEMPORARY TABLES ON `db`.* TO `monitor`@`localhost`
+show columns in tmp;
+ERROR 42S02: Table 'db.tmp' doesn't exist
+show index in tmp;
+ERROR 42S02: Table 'db.tmp' doesn't exist
+show create table tmp;
+ERROR 42S02: Table 'db.tmp' doesn't exist
+show create table bar;
+Table	Create Table
+bar	CREATE TABLE `bar` (
+  `b` int(11) DEFAULT NULL,
+  KEY `b` (`b`)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+show columns in bar;
+Field	Type	Null	Key	Default	Extra
+b	int(11)	YES	MUL	NULL	
+show index in bar;
+Table	Non_unique	Key_name	Seq_in_index	Column_name	Collation	Cardinality	Sub_part	Packed	Null	Index_type	Comment	Index_comment
+bar	1	b	1	b	A	NULL	NULL	NULL	YES	BTREE		
+create temporary table temp(t int);
+show create table temp;
+Table	Create Table
+temp	CREATE TEMPORARY TABLE `temp` (
+  `t` int(11) DEFAULT NULL
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+show columns in temp;
+Field	Type	Null	Key	Default	Extra
+t	int(11)	YES		NULL	
+show index in temp;
+Table	Non_unique	Key_name	Seq_in_index	Column_name	Collation	Cardinality	Sub_part	Packed	Null	Index_type	Comment	Index_comment
+# Give SELECT_ACL to both users
+connection default;
+grant select on db.* to foo@localhost;
+show grants for foo@localhost;
+Grants for foo@localhost
+GRANT USAGE ON *.* TO `foo`@`localhost`
+GRANT SELECT, CREATE TEMPORARY TABLES ON `db`.* TO `foo`@`localhost`
+grant select on db.* to bar@localhost;
+show grants for bar@localhost;
+Grants for bar@localhost
+GRANT USAGE ON *.* TO `bar`@`localhost`
+GRANT SELECT, CREATE ON `db`.* TO `bar`@`localhost`
+connection con2;
+show create table tmp;
+Table	Create Table
+tmp	CREATE TEMPORARY TABLE `tmp` (
+  `a` int(11) DEFAULT NULL,
+  KEY `a` (`a`)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+show columns in tmp;
+ERROR 42000: SELECT command denied to user 'foo'@'localhost' for table 'tmp'
+show index in tmp;
+ERROR 42000: SELECT command denied to user 'foo'@'localhost' for table 'tmp'
+connection con1;
+show create table bar;
+Table	Create Table
+bar	CREATE TABLE `bar` (
+  `b` int(11) DEFAULT NULL,
+  KEY `b` (`b`)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1
+show columns in bar;
+ERROR 42000: SELECT command denied to user 'bar'@'localhost' for table 'bar'
+show index in bar;
+ERROR 42000: SELECT command denied to user 'bar'@'localhost' for table 'bar'
+disconnect con1;
+disconnect con2;
+connect  con1,localhost,bar,,db;
+show create table tmp;
+ERROR 42S02: Table 'db.tmp' doesn't exist
+connect  con2,localhost,foo,,db;
+show columns in bar;
+Field	Type	Null	Key	Default	Extra
+b	int(11)	YES	MUL	NULL	
+show index in bar;
+Table	Non_unique	Key_name	Seq_in_index	Column_name	Collation	Cardinality	Sub_part	Packed	Null	Index_type	Comment	Index_comment
+bar	1	b	1	b	A	NULL	NULL	NULL	YES	BTREE		
+connection default;
+disconnect con1;
+disconnect con2;
+disconnect con3;
+drop database db;
+drop user foo@localhost;
+drop user bar@localhost;
+drop user monitor@localhost;
 # End of 10.3 tests

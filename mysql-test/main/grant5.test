@@ -135,4 +135,112 @@ SHOW GRANTS FOR 'test-user';
 DROP ROLE `r``o'l"e`;
 DROP USER 'test-user';
 
+--echo #
+--echo # MDEV-28455: CREATE TEMPORARY TABLES privilege
+--echo #            is insufficient for SHOW COLUMNS
+--echo #
+
+create database db;
+create user foo@localhost;
+create user bar@localhost;
+create user monitor@localhost;
+grant create temporary tables on db.* to foo@localhost;
+grant create on db.* to bar@localhost;
+grant create temporary tables, select on db.* to monitor@localhost;
+
+--echo # Check CREATE_ACL
+--connect (con1,localhost,bar,,db)
+ --error ER_DBACCESS_DENIED_ERROR
+create temporary table tmpbar (b int, key(b));
+create table bar (b int, key(b));
+# No SELECT_ACL
+--error ER_TABLEACCESS_DENIED_ERROR
+show index in bar;
+--error ER_TABLEACCESS_DENIED_ERROR
+show columns in bar;
+show create table bar;
+
+--echo # Check CREATE_TMP_ACL
+--connect (con2,localhost,foo,,db)
+create temporary table tmp (a int, key(a));
+# User cannot create base table with CREATE_TMP_ACL privileges
+--error ER_TABLEACCESS_DENIED_ERROR
+create table t (t int);
+# No SELECT_ACL
+--error ER_TABLEACCESS_DENIED_ERROR
+show index in tmp;
+--error ER_TABLEACCESS_DENIED_ERROR
+show columns in tmp;
+show create table tmp;
+
+--echo # Check user with SELECT_ACL privilege can see tables
+--connect (con3,localhost,monitor,,db)
+show grants;
+# Current connnection cannot see temporary table from other connection (con2)
+--error ER_NO_SUCH_TABLE
+show columns in tmp;
+--error ER_NO_SUCH_TABLE
+show index in tmp;
+--error ER_NO_SUCH_TABLE
+show create table tmp;
+# But can see the base table
+show create table bar;
+show columns in bar;
+show index in bar;
+create temporary table temp(t int);
+show create table temp;
+show columns in temp;
+show index in temp;
+
+--echo # Give SELECT_ACL to both users
+--connection default
+grant select on db.* to foo@localhost;
+show grants for foo@localhost;
+grant select on db.* to bar@localhost;
+show grants for bar@localhost;
+
+# It is expected that even when granting SELECT_ACL `current` session
+# cannot see the result, one needs to disconnect first.
+
+--connection con2
+# Still can see the temporary table footprint
+show create table tmp;
+# But cannot access the internals (SELECT_ACL didn't take place)
+--error ER_TABLEACCESS_DENIED_ERROR
+show columns in tmp;
+--error ER_TABLEACCESS_DENIED_ERROR
+show index in tmp;
+
+--connection con1
+# The same as for temporary table
+show create table bar;
+--error ER_TABLEACCESS_DENIED_ERROR
+show columns in bar;
+--error ER_TABLEACCESS_DENIED_ERROR
+show index in bar;
+
+--disconnect con1
+--disconnect con2
+
+--connect (con1,localhost,bar,,db)
+# There are valid grants but sessions closed, no temporary table
+--error ER_NO_SUCH_TABLE
+show create table tmp;
+
+--connect (con2,localhost,foo,,db)
+# Now we can see the internal meta data
+show columns in bar;
+show index in bar;
+
+# Cleanup
+
+--connection default
+--disconnect con1
+--disconnect con2
+--disconnect con3
+drop database db;
+drop user foo@localhost;
+drop user bar@localhost;
+drop user monitor@localhost;
+
 --echo # End of 10.3 tests

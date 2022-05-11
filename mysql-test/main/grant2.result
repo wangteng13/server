@@ -722,10 +722,9 @@ a
 # SHOW COLUMNS/DESCRIBE and SHOW KEYS.
 #
 SHOW COLUMNS FROM t1;
-Field	Type	Null	Key	Default	Extra
+ERROR 42000: SELECT command denied to user 'mysqltest_u1'@'localhost' for table 't1'
 SHOW KEYS FROM t3;
-Table	Non_unique	Key_name	Seq_in_index	Column_name	Collation	Cardinality	Sub_part	Packed	Null	Index_type	Comment	Index_comment
-t3	0	PRIMARY	1	a	A	0	NULL	NULL		BTREE		
+ERROR 42000: SELECT command denied to user 'mysqltest_u1'@'localhost' for table 't3'
 #
 # SHOW CREATE TABLE.
 #
