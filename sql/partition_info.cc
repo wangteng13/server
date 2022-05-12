@@ -904,11 +904,21 @@ void partition_info::vers_check_limit(THD *thd)
   uint32 part_id= vers_info->hist_part->id * sub_factor;
   const uint32 part_id_end= part_id + sub_factor;
   DBUG_ASSERT(part_id_end <= num_parts * sub_factor);
-  for (; part_id < part_id_end; ++part_id)
-    bitmap_set_bit(&read_partitions, part_id);
-
   ha_partition *hp= (ha_partition*)(table->file);
-  ha_rows hist_rows= hp->part_records(vers_info->hist_part);
+  handler **files= hp->get_child_handlers();
+  ha_rows hist_rows= 0;
+  for (; part_id < part_id_end; ++part_id)
+  {
+    handler *file= files[part_id];
+    uint bit_set= bitmap_is_set(&read_partitions, part_id);
+    if (!bit_set)
+      bitmap_set_bit(&read_partitions, part_id);
+    file->info(HA_STATUS_VARIABLE | HA_STATUS_NO_LOCK | HA_STATUS_OPEN);
+    if (!bit_set)
+      bitmap_clear_bit(&read_partitions, part_id);
+    hist_rows+= file->stats.records;
+  }
+
   if (hist_rows >= vers_info->limit)
   {
     push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
