@@ -467,6 +467,10 @@ public:
   {
     return m_file;
   }
+  handler **get_new_handlers()
+  {
+    return m_new_file;
+  }
   ha_partition *get_clone_source()
   {
     return m_is_clone_of;
@@ -554,13 +558,7 @@ public:
     override;
   bool check_if_updates_are_ignored(const char *op) const override;
   void update_create_info(HA_CREATE_INFO *create_info) override;
-  int change_partitions(HA_CREATE_INFO *create_info, const char *path,
-                        ulonglong * const copied, ulonglong * const deleted,
-                        const uchar *pack_frm_data, size_t pack_frm_len)
-    override;
   int allocate_partitions();
-  int drop_partitions(const char *path) override;
-  int rename_partitions(const char *path) override;
   bool get_no_parts(const char *, uint *num_parts) override
   {
     DBUG_ENTER("ha_partition::get_no_parts");
