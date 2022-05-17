@@ -927,7 +927,7 @@ bool partition_info::vers_set_hist_part(THD *thd, uint *create_count)
 bool vers_create_partitions(THD *thd, TABLE_LIST* tl, uint num_parts)
 {
   bool result= true;
-  HA_CREATE_INFO create_info;
+  Table_specification_st create_info;
   Alter_info alter_info;
   partition_info *save_part_info= thd->work_part_info;
   Query_tables_list save_query_tables;
@@ -1007,8 +1007,8 @@ bool vers_create_partitions(THD *thd, TABLE_LIST* tl, uint num_parts)
       goto exit;
     }
     DBUG_ASSERT(partition_changed);
-    if (mysql_prepare_alter_table(thd, table, &create_info, &alter_info,
-                                  &alter_ctx))
+    if (mysql_prepare_alter_table(thd, table, &create_info,
+                                  &alter_info, &alter_ctx))
     {
       my_error(ER_VERS_HIST_PART_FAILED, MYF(ME_WARNING),
                tl->db.str, tl->table_name.str);

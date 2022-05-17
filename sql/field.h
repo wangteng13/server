@@ -5503,7 +5503,7 @@ public:
 
   void set_lex_charset_collation(const Lex_charset_collation_st &lc)
   {
-    charset= lc.charset_collation();
+    charset= lc.charset_info();
     if (lc.is_contextually_typed_collation())
       flags|= CONTEXT_COLLATION_FLAG;
     else

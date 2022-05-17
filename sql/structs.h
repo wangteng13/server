@@ -702,14 +702,14 @@ public:
            const Lex_charset_collation_st &coll)
   {
     m_handler= handler;
-    m_ci= coll.charset_collation();
+    m_ci= coll.charset_info();
     Lex_length_and_dec_st::operator=(length_and_dec);
     m_collation_type= ((uint8) coll.type()) & 0x3;
   }
   void set(const Type_handler *handler, const Lex_charset_collation_st &coll)
   {
     m_handler= handler;
-    m_ci= coll.charset_collation();
+    m_ci= coll.charset_info();
     Lex_length_and_dec_st::reset();
     m_collation_type= ((uint8) coll.type()) & 0x3;
   }
