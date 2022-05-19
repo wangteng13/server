@@ -5613,12 +5613,9 @@ i_s_sys_indexes_fill_table(
 		mutex_exit(&dict_sys->mutex);
 
 		if (!err_msg) {
-			if (int err = i_s_dict_fill_sys_indexes(
-				    thd, table_id, space_id, &index_rec,
-				    tables->table)) {
-				mem_heap_free(heap);
-				DBUG_RETURN(err);
-			}
+			i_s_dict_fill_sys_indexes(
+				thd, table_id, space_id, &index_rec,
+				tables->table);
 		} else {
 			push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
 					    ER_CANT_FIND_SYSTEM_REC, "%s",
