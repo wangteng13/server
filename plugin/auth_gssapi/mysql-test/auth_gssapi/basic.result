@@ -1,6 +1,4 @@
 INSTALL SONAME 'auth_gssapi';
-Warnings:
-Note	1105	SSPI: using principal name 'localhost', mech 'Negotiate'
 CREATE USER 'GSSAPI_SHORTNAME' IDENTIFIED WITH gssapi;
 connect  con1,localhost,$GSSAPI_SHORTNAME,,;
 SELECT USER(),CURRENT_USER();

@@ -1,5 +1,8 @@
 --replace_regex /name '[^']+'/name 'localhost'/
+--disable_warnings
+--error 0,ER_CANT_OPEN_LIBRARY
 INSTALL SONAME 'auth_gssapi';
+--enable_warnings
 
 #
 # CREATE USER without 'AS' clause
@@ -43,4 +46,5 @@ connect (con1,localhost,nosuchuser,,);
 --enable_query_log
 DROP USER nosuchuser;
 
+--error 0,ER_SP_DOES_NOT_EXIST
 UNINSTALL SONAME 'auth_gssapi';

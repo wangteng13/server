@@ -1,8 +1,9 @@
+
 package My::Suite::AuthGSSAPI;
 
 @ISA = qw(My::Suite);
 
-return "No AUTH_GSSAPI plugin" unless $ENV{AUTH_GSSAPI_SO};
+return "No AUTH_GSSAPI plugin" unless ($ENV{AUTH_GSSAPI_SO} or ($^O eq 'MSWin32'));
 
 return "Not run for embedded server" if $::opt_embedded_server;
 
