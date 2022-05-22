@@ -604,6 +604,10 @@ public:
 };
 
 
+using Lex_column_charset_collation_attrs_st = Lex_charset_collation_st;
+using Lex_column_charset_collation_attrs = Lex_charset_collation;
+
+
 class Lex_maybe_context_charset_collation:
   public Lex_maybe_context_charset_collation_st
 {
