@@ -23,6 +23,7 @@
 
   data in tables is sorted according to how many not-wild-cards there is
   in the relevant fields. Empty strings comes last.
+
 */
 
 #include "mariadb.h"                          /* NO_EMBEDDED_ACCESS_CHECKS */
