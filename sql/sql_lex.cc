@@ -11868,7 +11868,7 @@ bool LEX::sp_create_set_password_instr(THD *thd,
 
 
 bool LEX::set_names(const char *pos,
-                    const Lex_exact_charset_opt_collate &cscl,
+                    const Lex_exact_charset_opt_extended_collate &cscl,
                     bool no_lookahead)
 {
   if (sp_create_assignment_lex(thd, pos))

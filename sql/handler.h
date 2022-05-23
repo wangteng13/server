@@ -2288,8 +2288,8 @@ struct HA_CREATE_INFO: public Table_scope_and_contents_source_st,
       return table_options;
   }
   bool resolve_to_charset_collation_context(THD *thd,
-                  const Lex_maybe_context_charset_collation_st &default_cscl,
-                  const Lex_maybe_context_charset_collation_st &convert_cscl,
+                  const Lex_table_charset_collation_attrs_st &default_cscl,
+                  const Lex_table_charset_collation_attrs_st &convert_cscl,
                   const Charset_collation_context &ctx);
 };
 
@@ -2301,8 +2301,8 @@ struct HA_CREATE_INFO: public Table_scope_and_contents_source_st,
 struct Table_specification_st: public HA_CREATE_INFO,
                                public DDL_options_st
 {
-  Lex_maybe_context_charset_collation_st default_charset_collation;
-  Lex_maybe_context_charset_collation_st convert_charset_collation;
+  Lex_table_charset_collation_attrs_st default_charset_collation;
+  Lex_table_charset_collation_attrs_st convert_charset_collation;
 
   // Deep initialization
   void init()
@@ -2341,7 +2341,7 @@ struct Table_specification_st: public HA_CREATE_INFO,
       convert_charset_collation.merge_exact_charset(Lex_exact_charset(cs)) :
       convert_charset_collation.merge_charset_default();
   }
-  bool add_table_option_convert_collation(const Lex_collation_st &cl)
+  bool add_table_option_convert_collation(const Lex_extended_collation_st &cl)
   {
     used_fields|= (HA_CREATE_USED_CHARSET | HA_CREATE_USED_DEFAULT_CHARSET);
     return convert_charset_collation.merge_collation(cl);
@@ -2355,7 +2355,7 @@ struct Table_specification_st: public HA_CREATE_INFO,
       default_charset_collation.merge_exact_charset(Lex_exact_charset(cs)) :
       default_charset_collation.merge_charset_default();
   }
-  bool add_table_option_default_collation(const Lex_collation_st &cl)
+  bool add_table_option_default_collation(const Lex_extended_collation_st &cl)
   {
     used_fields|= HA_CREATE_USED_DEFAULT_CHARSET;
     return default_charset_collation.merge_collation(cl);

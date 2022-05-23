@@ -3819,7 +3819,7 @@ public:
   int case_stmt_action_then();
   bool setup_select_in_parentheses();
   bool set_names(const char *pos,
-                 const Lex_exact_charset_opt_collate &cs,
+                 const Lex_exact_charset_opt_extended_collate &cs,
                  bool no_lookahead);
   bool set_trigger_new_row(const LEX_CSTRING *name, Item *val);
   bool set_trigger_field(const LEX_CSTRING *name1, const LEX_CSTRING *name2,
@@ -4400,8 +4400,9 @@ public:
     alter_info.flags|= ALTER_CONVERT_TO;
     return false;
   }
-  bool add_alter_list_item_convert_to_charset(CHARSET_INFO *cs,
-                                              const Lex_collation_st &cl)
+  bool
+  add_alter_list_item_convert_to_charset(CHARSET_INFO *cs,
+                                         const Lex_extended_collation_st &cl)
   {
     if (create_info.add_table_option_convert_charset(cs) ||
         create_info.add_table_option_convert_collation(cl))

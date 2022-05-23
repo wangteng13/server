@@ -12344,8 +12344,8 @@ end_with_restore_list:
 
 bool HA_CREATE_INFO::
        resolve_to_charset_collation_context(THD *thd,
-             const Lex_maybe_context_charset_collation_st &default_cscl_arg,
-             const Lex_maybe_context_charset_collation_st &convert_cscl,
+             const Lex_table_charset_collation_attrs_st &default_cscl_arg,
+             const Lex_table_charset_collation_attrs_st &convert_cscl,
              const Charset_collation_context &ctx)
 {
   /*
@@ -12355,7 +12355,7 @@ bool HA_CREATE_INFO::
     means
       CONVERT TO CHARACTER SET utf8mb4, DEFAULT CHARACTER SET utf8mb4
   */
-  Lex_maybe_context_charset_collation_st default_cscl=
+  Lex_table_charset_collation_attrs_st default_cscl=
     !convert_cscl.is_empty() && default_cscl_arg.is_empty() ?
     convert_cscl : default_cscl_arg;
 

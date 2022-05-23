@@ -213,8 +213,9 @@ void _CONCAT_UNDERSCORED(turn_parser_debug_on,yyparse)()
   Lex_length_and_dec_st Lex_length_and_dec;
   Lex_cast_type_st Lex_cast_type;
   Lex_field_type_st Lex_field_type;
-  Lex_charset_collation_st Lex_charset_collation;
-  Lex_collation_st Lex_collation;
+  Lex_exact_charset_extended_collation_attrs_st
+                    Lex_exact_charset_extended_collation_attrs;
+  Lex_extended_collation_st Lex_extended_collation;
   Lex_dyncol_type_st Lex_dyncol_type;
   Lex_for_loop_st for_loop;
   Lex_for_loop_bounds_st for_loop_bounds;
@@ -1380,7 +1381,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
         field_type_misc
         json_table_field_type
 
-%type <Lex_charset_collation>
+%type <Lex_exact_charset_extended_collation_attrs>
         binary
         opt_binary
         opt_binary_and_compression
@@ -1388,7 +1389,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
         attribute_list
         field_def
 
-%type <Lex_collation>
+%type <Lex_extended_collation>
         collation_name
         collation_name_or_default
 
@@ -6069,7 +6070,7 @@ field_type_string:
         | nchar opt_field_length opt_bin_mod
           {
             $$.set(&type_handler_string, $2,
-                   Lex_charset_collation::national($3));
+                   Lex_exact_charset_extended_collation_attrs::national($3));
           }
         | BINARY opt_field_length
           {
@@ -6086,7 +6087,7 @@ field_type_string:
         | nvarchar opt_field_length opt_compressed opt_bin_mod
           {
             $$.set(&type_handler_varchar, $2,
-                   Lex_charset_collation::national($4));
+                   Lex_exact_charset_extended_collation_attrs::national($4));
           }
         | VARBINARY opt_field_length opt_compressed
           {
@@ -6326,7 +6327,10 @@ attribute:
             lex->alter_info.flags|= ALTER_ADD_INDEX;
             $$.init();
           }
-        | COLLATE_SYM collation_name { $$= Lex_charset_collation($2); }
+        | COLLATE_SYM collation_name
+          {
+            $$= Lex_exact_charset_extended_collation_attrs($2);
+          }
         | serial_attribute { $$.init(); }
         ;
 
@@ -6469,7 +6473,7 @@ collation_name:
             if (unlikely(!(cs= mysqld_collation_get_by_name($1.str,
                                                             thd->get_utf8_flag()))))
               MYSQL_YYABORT;
-            $$= Lex_collation(Lex_exact_collation(cs));
+            $$= Lex_extended_collation(Lex_exact_collation(cs));
           }
         ;
 
@@ -6520,10 +6524,16 @@ binary:
           {
             if ($3.merge_exact_charset(Lex_exact_charset($1)))
               MYSQL_YYABORT;
-            $$= Lex_charset_collation($3);
+            $$= Lex_exact_charset_extended_collation_attrs($3);
           }
-        | COLLATE_SYM collation_name  { $$= Lex_charset_collation($2); }
-        | COLLATE_SYM DEFAULT         { $$.set_collate_default(); }
+        | COLLATE_SYM collation_name
+          {
+            $$= Lex_exact_charset_extended_collation_attrs($2);
+          }
+        | COLLATE_SYM DEFAULT
+          {
+            $$.set_collate_default();
+          }
         ;
 
 opt_bin_mod:
@@ -16562,7 +16572,7 @@ option_value_no_option_type:
         | NAMES_SYM charset_name_or_default
           {
             CHARSET_INFO *def= global_system_variables.character_set_client;
-            Lex_exact_charset_opt_collate tmp($2 ? $2 : def, false);
+            Lex_exact_charset_opt_extended_collate tmp($2 ? $2 : def, false);
             if (Lex->set_names($1.pos(), tmp, yychar == YYEMPTY))
               MYSQL_YYABORT;
           }
@@ -16570,7 +16580,7 @@ option_value_no_option_type:
                     COLLATE_SYM collation_name_or_default
           {
             CHARSET_INFO *def= global_system_variables.character_set_client;
-            Lex_exact_charset_opt_collate tmp($2 ? $2 : def, false);
+            Lex_exact_charset_opt_extended_collate tmp($2 ? $2 : def, false);
             if (tmp.merge_collation($4) ||
                 Lex->set_names($1.pos(), tmp, yychar == YYEMPTY))
               MYSQL_YYABORT;
