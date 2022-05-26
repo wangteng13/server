@@ -59,16 +59,16 @@ enum ddl_log_action_code
   DDL_LOG_UNKNOWN_ACTION= 0,
 
   /* Delete a .frm file or a table in the partition engine */
-  DDL_LOG_DELETE_ACTION= 1,
+  DDL_LOG_FILE_DELETE_ACTION= 1,
 
   /* Rename a .frm fire a table in the partition engine */
-  DDL_LOG_RENAME_ACTION= 2,
+  DDL_LOG_FILE_RENAME_ACTION= 2,
 
   /*
     Rename an entity after removing the previous entry with the
     new name, that is replace this entry.
   */
-  DDL_LOG_REPLACE_ACTION= 3,
+  DDL_LOG_FILE_REPLACE_ACTION= 3,
 
   /* Exchange two entities by renaming them a -> tmp, b -> a, tmp -> b */
   DDL_LOG_EXCHANGE_ACTION= 4,
@@ -359,6 +359,8 @@ bool ddl_log_alter_table(DDL_LOG_STATE *ddl_state,
 bool ddl_log_store_query(THD *thd, DDL_LOG_STATE *ddl_log_state,
                          const char *query, size_t length);
 bool ddl_log_delete_frm(DDL_LOG_STATE *ddl_state, const char *to_path);
+bool ddl_log_rename_frm(DDL_LOG_STATE *ddl_state,
+                        const char *from_path, const char *to_path);
 void ddl_log_link_chains(DDL_LOG_STATE *state, DDL_LOG_STATE *master_state);
 extern mysql_mutex_t LOCK_gdl;
 #endif /* DDL_LOG_INCLUDED */

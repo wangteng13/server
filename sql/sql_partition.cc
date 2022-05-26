@@ -6104,47 +6104,6 @@ static void release_part_info_log_entries(DDL_LOG_MEMORY_ENTRY *log_entry)
 }
 
 
-/*
-  Log an rename frm file
-  SYNOPSIS
-    write_log_replace_frm()
-    lpt                            Struct for parameters
-    from_path                      Name to rename from
-    to_path                        Name to rename to
-  RETURN VALUES
-    TRUE                           Error
-    FALSE                          Success
-  DESCRIPTION
-    Support routine that writes a replace of an frm file into the
-    ddl log. It also inserts an entry that keeps track of used space into
-    the partition info object
-*/
-
-bool write_log_replace_frm(ALTER_PARTITION_PARAM_TYPE *lpt,
-                                  const char *from_path,
-                                  const char *to_path)
-{
-  DDL_LOG_ENTRY ddl_log_entry;
-  DDL_LOG_MEMORY_ENTRY *log_entry;
-  DDL_LOG_STATE *ddl_log_state= &lpt->rollback_chain;
-  DBUG_ENTER("write_log_replace_frm");
-
-  bzero(&ddl_log_entry, sizeof(ddl_log_entry));
-  // FIXME: return DDL_LOG_REPLACE_ACTION for other commands?
-  ddl_log_entry.action_type= DDL_LOG_RENAME_ACTION;
-  ddl_log_entry.next_entry= ddl_log_state->list ? ddl_log_state->list->entry_pos : 0;
-  lex_string_set(&ddl_log_entry.name, to_path);
-  lex_string_set(&ddl_log_entry.from_name, from_path);
-
-  if (ddl_log_write_entry(&ddl_log_entry, &log_entry))
-  {
-    DBUG_RETURN(true);
-  }
-  ddl_log_add_entry(ddl_log_state, log_entry);
-  DBUG_RETURN(false);
-}
-
-
 class Alter_partition_action
 {
   char path_buf[FN_REFLEN + 1];

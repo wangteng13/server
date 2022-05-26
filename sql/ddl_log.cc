@@ -1357,7 +1357,7 @@ static int ddl_log_execute_action(THD *thd, MEM_ROOT *mem_root,
   if (!report_error)
     thd->push_internal_handler(&no_such_table_handler);
 
-  if (ddl_log_entry->action_type < DDL_LOG_EXCHANGE_ACTION &&
+  if (ddl_log_entry->action_type <= DDL_LOG_FILE_REPLACE_ACTION &&
       ddl_log_entry->unique_id)
     key= (PSI_file_key) ddl_log_entry->unique_id;
 
@@ -1374,9 +1374,10 @@ static int ddl_log_execute_action(THD *thd, MEM_ROOT *mem_root,
     fn_flags|= FN_TO_IS_TMP;
 
   switch (ddl_log_entry->action_type) {
-  case DDL_LOG_REPLACE_ACTION:
-  case DDL_LOG_DELETE_ACTION:
+  case DDL_LOG_FILE_REPLACE_ACTION:
+  case DDL_LOG_FILE_DELETE_ACTION:
   {
+    /* DDL_LOG_FILE_REPLACE_ACTION is 2 phases: delete and rename */
     if (ddl_log_entry->phase == 0)
     {
       if (unlikely((error= mysql_file_delete(key,
@@ -1386,30 +1387,21 @@ static int ddl_log_execute_action(THD *thd, MEM_ROOT *mem_root,
       if (increment_phase(entry_pos))
         break;
       error= 0;
-      if (ddl_log_entry->action_type == DDL_LOG_DELETE_ACTION)
+      if (ddl_log_entry->action_type == DDL_LOG_FILE_DELETE_ACTION)
         break;
     }
   }
-  DBUG_ASSERT(ddl_log_entry->action_type == DDL_LOG_REPLACE_ACTION);
+  DBUG_ASSERT(ddl_log_entry->action_type == DDL_LOG_FILE_REPLACE_ACTION);
   /*
     Fall through and perform the rename action of the replace
     action. We have already indicated the success of the delete
     action in the log entry by stepping up the phase.
   */
   /* fall through */
-  case DDL_LOG_RENAME_ACTION:
+  case DDL_LOG_FILE_RENAME_ACTION:
   {
-    strxmov(to_path, ddl_log_entry->name.str, reg_ext, NullS);
-    strxmov(from_path, ddl_log_entry->from_name.str, reg_ext, NullS);
-    error= mysql_file_rename(key_file_frm, from_path, to_path, MYF(MY_WME));
-#ifdef WITH_PARTITION_STORAGE_ENGINE
-    strxmov(to_path, ddl_log_entry->name.str, PAR_EXT, NullS);
-    strxmov(from_path, ddl_log_entry->from_name.str, PAR_EXT, NullS);
-    int err2= mysql_file_rename(key_file_partition_ddl_log, from_path,
-                                to_path, MYF(MY_WME));
-    if (!error)
-      error= err2;
-#endif
+    error= mysql_file_rename(key, ddl_log_entry->from_name.str,
+                             ddl_log_entry->name.str, MYF(MY_WME));
     if (increment_phase(entry_pos))
     {
       error= -1;
@@ -3707,8 +3699,10 @@ err:
 }
 
 
-/*
-  Log an delete frm file
+/**
+  Log an delete frm file and par file
+
+  @param to_path      Location of frm file without extension
 */
 
 bool ddl_log_delete_frm(DDL_LOG_STATE *ddl_state, const char *to_path)
@@ -3718,7 +3712,7 @@ bool ddl_log_delete_frm(DDL_LOG_STATE *ddl_state, const char *to_path)
   DDL_LOG_MEMORY_ENTRY *log_entry;
   DBUG_ENTER("ddl_log_delete_frm");
   bzero(&ddl_log_entry, sizeof(ddl_log_entry));
-  ddl_log_entry.action_type= DDL_LOG_DELETE_ACTION;
+  ddl_log_entry.action_type= DDL_LOG_FILE_DELETE_ACTION;
   ddl_log_entry.next_entry= ddl_state->list ? ddl_state->list->entry_pos : 0;
 
   mysql_mutex_assert_owner(&LOCK_gdl);
@@ -3741,6 +3735,53 @@ bool ddl_log_delete_frm(DDL_LOG_STATE *ddl_state, const char *to_path)
   ddl_log_add_entry(ddl_state, log_entry);
   DBUG_RETURN(0);
 }
+
+
+/**
+  Log an rename frm file and par file
+
+  @param from_path      Location of frm file without extension
+  @param to_path        Location of new frm file without extension
+*/
+
+bool ddl_log_rename_frm(DDL_LOG_STATE *ddl_state,
+                        const char *from_path, const char *to_path)
+{
+  char to_file[FN_REFLEN + 1], from_file[FN_REFLEN + 1];
+  DDL_LOG_ENTRY ddl_log_entry;
+  DDL_LOG_MEMORY_ENTRY *log_entry;
+  DBUG_ENTER("ddl_log_rename_frm");
+
+  bzero(&ddl_log_entry, sizeof(ddl_log_entry));
+  ddl_log_entry.action_type= DDL_LOG_FILE_RENAME_ACTION;
+  ddl_log_entry.next_entry= ddl_state->list ? ddl_state->list->entry_pos : 0;
+
+  mysql_mutex_assert_owner(&LOCK_gdl);
+#ifdef WITH_PARTITION_STORAGE_ENGINE
+  strxmov(to_file, to_path, PAR_EXT, NullS);
+  strxmov(from_file, from_path, PAR_EXT, NullS);
+  lex_string_set(&ddl_log_entry.name, to_file);
+  lex_string_set(&ddl_log_entry.from_name, from_file);
+  ddl_log_entry.unique_id= (ulonglong) key_file_partition_ddl_log;
+  if (ddl_log_write_entry(&ddl_log_entry, &log_entry))
+    DBUG_RETURN(1);
+
+  ddl_log_add_entry(ddl_state, log_entry);
+  ddl_log_entry.next_entry= ddl_state->list->entry_pos;
+#endif
+  strxmov(to_file, to_path, reg_ext, NullS);
+  strxmov(from_file, from_path, reg_ext, NullS);
+  lex_string_set(&ddl_log_entry.name, to_file);
+  lex_string_set(&ddl_log_entry.from_name, from_file);
+  ddl_log_entry.unique_id= (ulonglong) key_file_frm;
+
+  if (ddl_log_write_entry(&ddl_log_entry, &log_entry))
+    DBUG_RETURN(true);
+
+  ddl_log_add_entry(ddl_state, log_entry);
+  DBUG_RETURN(false);
+}
+
 
 /*
    Link the ddl_log_state to another (master) chain. If the master
