@@ -6189,6 +6189,7 @@ public:
   {
     DBUG_ASSERT(table->file->ht->db_type == DB_TYPE_PARTITION_DB);
     bzero(&ddl_log_entry, sizeof(ddl_log_entry));
+    ddl_log_entry.flags= DDL_LOG_FLAG_ALTER_PARTITION;
 
     build_table_filename(path_buf, sizeof(path_buf) - 1, lpt->db.str,
                          lpt->table_name.str, "", 0);
@@ -6205,7 +6206,7 @@ public:
   bool build_names(partition_element *part_elem, partition_element *sub_elem)
   {
     lex_string_set(&ddl_log_entry.handler_name,
-                    ha_resolve_storage_engine_name(part_elem->engine_type));
+                   ha_resolve_storage_engine_name(part_elem->engine_type));
     DBUG_ASSERT(from_name_type != SKIP_PART_NAME);
     if (!sub_elem)
     {
@@ -6386,8 +6387,8 @@ public:
       DBUG_ASSERT(to_name_type == SKIP_PART_NAME);
       DBUG_ASSERT(part_elem->part_state == PART_TO_BE_DROPPED ||
                   part_elem->part_state == PART_TO_BE_REORGED);
-      ddl_log_entry.action_type= DDL_LOG_DELETE_ACTION;
-      ddl_log_entry.name= { from_name, strlen(from_name) };
+      ddl_log_entry.action_type= DDL_LOG_DROP_TABLE_ACTION;
+      ddl_log_entry.tmp_name= { from_name, strlen(from_name) };
       output_chain= cleanup_chain;
       ddl_log_link_chains(cleanup_chain, rollback_chain);
       break;

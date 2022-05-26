@@ -1324,6 +1324,7 @@ static int ddl_log_execute_action(THD *thd, MEM_ROOT *mem_root,
   int error= 0;
   uint fn_flags= 0;
   bool frm_action= FALSE;
+  const bool alter_partition= ddl_log_entry->flags & DDL_LOG_FLAG_ALTER_PARTITION;
   DBUG_ENTER("ddl_log_execute_action");
 
   mysql_mutex_assert_owner(&LOCK_gdl);
@@ -1615,7 +1616,10 @@ static int ddl_log_execute_action(THD *thd, MEM_ROOT *mem_root,
         }
       }
       else
+      {
+        DBUG_ASSERT(!alter_partition);
         error= ha_delete_table_force(thd, path.str, &db, &table);
+      }
       if (error <= 0)
       {
         /* Not found or already deleted. Delete .frm if it exists */
@@ -1627,14 +1631,14 @@ static int ddl_log_execute_action(THD *thd, MEM_ROOT *mem_root,
         break;
       /* Fall through */
     case DDL_DROP_PHASE_TRIGGER:
-      Table_triggers_list::drop_all_triggers(thd, &db, &table,
-                                             fn_flags,
-                                             MYF(MY_WME | MY_IGNORE_ENOENT));
+      if (!alter_partition)
+        Table_triggers_list::drop_all_triggers(thd, &db, &table, fn_flags,
+                                               MYF(MY_WME | MY_IGNORE_ENOENT));
       if (increment_phase(entry_pos))
         break;
       /* Fall through */
     case DDL_DROP_PHASE_BINLOG:
-      if (fn_flags & FN_IS_TMP)
+      if (alter_partition || (fn_flags & FN_IS_TMP))
       {
         /*
           If new code is added here please finish this block like this:
@@ -2041,7 +2045,7 @@ static int ddl_log_execute_action(THD *thd, MEM_ROOT *mem_root,
     */
     partition_hton= hton;
 
-    if (ddl_log_entry->flags & DDL_LOG_FLAG_ALTER_PARTITION)
+    if (alter_partition)
     {
       /*
         The from and to tables where both using the partition engine.
