@@ -1323,6 +1323,7 @@ static int ddl_log_execute_action(THD *thd, MEM_ROOT *mem_root,
   uint entry_pos= ddl_log_entry->entry_pos;
   int error= 0;
   uint fn_flags= 0;
+  PSI_file_key key= key_file_misc;
   const bool alter_partition= ddl_log_entry->flags & DDL_LOG_FLAG_ALTER_PARTITION;
   DBUG_ENTER("ddl_log_execute_action");
 
@@ -1356,6 +1357,10 @@ static int ddl_log_execute_action(THD *thd, MEM_ROOT *mem_root,
   if (!report_error)
     thd->push_internal_handler(&no_such_table_handler);
 
+  if (ddl_log_entry->action_type < DDL_LOG_EXCHANGE_ACTION &&
+      ddl_log_entry->unique_id)
+    key= (PSI_file_key) ddl_log_entry->unique_id;
+
   if (ddl_log_entry->handler_name.length)
   {
     if (!(file= create_handler(thd, mem_root, &handler_name)))
@@ -1374,16 +1379,10 @@ static int ddl_log_execute_action(THD *thd, MEM_ROOT *mem_root,
   {
     if (ddl_log_entry->phase == 0)
     {
-      strxmov(to_path, ddl_log_entry->name.str, reg_ext, NullS);
-      if (unlikely((error= mysql_file_delete(key_file_frm, to_path,
-                                              MYF(MY_WME |
-                                                  MY_IGNORE_ENOENT)))))
+      if (unlikely((error= mysql_file_delete(key,
+                                             ddl_log_entry->name.str,
+                                             MYF(MY_WME | MY_IGNORE_ENOENT)))))
         break;
-#ifdef WITH_PARTITION_STORAGE_ENGINE
-      strxmov(to_path, ddl_log_entry->name.str, PAR_EXT, NullS);
-      (void) mysql_file_delete(key_file_partition_ddl_log, to_path,
-                                MYF(0));
-#endif
       if (increment_phase(entry_pos))
         break;
       error= 0;
@@ -3712,12 +3711,9 @@ err:
   Log an delete frm file
 */
 
-/*
-  TODO: Partitioning atomic DDL refactoring: this should be replaced with
-        ddl_log_create_table().
-*/
 bool ddl_log_delete_frm(DDL_LOG_STATE *ddl_state, const char *to_path)
 {
+  char to_file[FN_REFLEN + 1];
   DDL_LOG_ENTRY ddl_log_entry;
   DDL_LOG_MEMORY_ENTRY *log_entry;
   DBUG_ENTER("ddl_log_delete_frm");
@@ -3725,9 +3721,20 @@ bool ddl_log_delete_frm(DDL_LOG_STATE *ddl_state, const char *to_path)
   ddl_log_entry.action_type= DDL_LOG_DELETE_ACTION;
   ddl_log_entry.next_entry= ddl_state->list ? ddl_state->list->entry_pos : 0;
 
-  lex_string_set(&ddl_log_entry.name, to_path);
-
   mysql_mutex_assert_owner(&LOCK_gdl);
+#ifdef WITH_PARTITION_STORAGE_ENGINE
+  strxmov(to_file, to_path, PAR_EXT, NullS);
+  lex_string_set(&ddl_log_entry.name, to_file);
+  ddl_log_entry.unique_id= (ulonglong) key_file_partition_ddl_log;
+  if (ddl_log_write_entry(&ddl_log_entry, &log_entry))
+    DBUG_RETURN(1);
+
+  ddl_log_add_entry(ddl_state, log_entry);
+  ddl_log_entry.next_entry= ddl_state->list->entry_pos;
+#endif
+  strxmov(to_file, to_path, reg_ext, NullS);
+  lex_string_set(&ddl_log_entry.name, to_file);
+  ddl_log_entry.unique_id= (ulonglong) key_file_frm;
   if (ddl_log_write_entry(&ddl_log_entry, &log_entry))
     DBUG_RETURN(1);
 
