@@ -6377,7 +6377,7 @@ public:
       DBUG_ASSERT(from_name_type == TEMP_PART_NAME);
       DBUG_ASSERT(to_name_type == NORMAL_PART_NAME);
       DBUG_ASSERT(part_elem->part_state == PART_IS_ADDED);
-      ddl_log_entry.action_type= DDL_LOG_DELETE_ACTION;
+      ddl_log_entry.action_type= DDL_LOG_RENAME_ACTION;
       ddl_log_entry.name= { from_name, strlen(from_name) };
       output_chain= rollback_chain;
       break;
@@ -6747,15 +6747,12 @@ error:
 
 
 /*
-  Final part of partition changes to handle things when under
-  LOCK TABLES.
+  Close tables, prepare for reopening under LOCK TABLES.
   SYNPOSIS
     alter_partition_lock_handling()
     lpt                        Struct carrying parameters
-  RETURN VALUES
-    true on error
 */
-static bool alter_partition_lock_handling(ALTER_PARTITION_PARAM_TYPE *lpt, bool reopen= true)
+static void alter_partition_lock_handling(ALTER_PARTITION_PARAM_TYPE *lpt)
 {
   THD *thd= lpt->thd;
 
@@ -6795,10 +6792,6 @@ static bool alter_partition_lock_handling(ALTER_PARTITION_PARAM_TYPE *lpt, bool 
   }
   lpt->table= 0;
   lpt->table_list->table= 0;
-  if (reopen && thd->locked_tables_mode)
-    return thd->locked_tables_list.reopen_tables(thd, false);
-
-  return false;
 }
 
 
@@ -7170,17 +7163,17 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
   CRASH_INJECT("done_partition_1");
   ddl_log_complete(rollback_chain);
   CRASH_INJECT("done_partition_2");
-  (void) ddl_log_revert(thd, cleanup_chain, DDL_LOG_ERR_WARN);
+  alter_partition_lock_handling(lpt);
+  // FIXME: test when ddl_log_revert() fails under LOCK TABLES
+  if (ddl_log_revert(thd, cleanup_chain))
+    goto err_reopen;
 
-  if (alter_partition_lock_handling(lpt))
-    goto err;
+  if (thd->locked_tables_mode)
+    (void) thd->locked_tables_list.reopen_tables(thd, false);
 
   thd->variables.option_bits= save_option_bits;
   downgrade_mdl_if_lock_tables_mode(thd, mdl_ticket, MDL_SHARED_NO_READ_WRITE);
-  /*
-    A final step is to write the query to the binlog and send ok to the
-    user
-  */
+
   DBUG_RETURN(fast_end_partition(thd, lpt->copied, lpt->deleted, table_list));
 
 fail:
@@ -7188,8 +7181,10 @@ fail:
   ddl_log_complete(cleanup_chain);
   CRASH_INJECT("fail_partition_2");
   /* We may fail to drop partitions due to existing locking, so must unlock first */
-  (void) alter_partition_lock_handling(lpt, false);
-  (void) ddl_log_revert(thd, rollback_chain, DDL_LOG_ERR_WARN);
+  (void) alter_partition_lock_handling(lpt);
+  (void) ddl_log_revert(thd, rollback_chain);
+
+err_reopen:
   if (thd->locked_tables_mode)
     (void) thd->locked_tables_list.reopen_tables(thd, false);
 
