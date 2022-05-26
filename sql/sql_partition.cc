@@ -6133,7 +6133,6 @@ bool write_log_replace_frm(ALTER_PARTITION_PARAM_TYPE *lpt,
   // FIXME: return DDL_LOG_REPLACE_ACTION for other commands?
   ddl_log_entry.action_type= DDL_LOG_RENAME_ACTION;
   ddl_log_entry.next_entry= ddl_log_state->list ? ddl_log_state->list->entry_pos : 0;
-  lex_string_set(&ddl_log_entry.handler_name, reg_ext);
   lex_string_set(&ddl_log_entry.name, to_path);
   lex_string_set(&ddl_log_entry.from_name, from_path);
 
@@ -6188,9 +6187,6 @@ public:
                          hp((ha_partition *) table->file)
   {
     DBUG_ASSERT(table->file->ht->db_type == DB_TYPE_PARTITION_DB);
-    bzero(&ddl_log_entry, sizeof(ddl_log_entry));
-    ddl_log_entry.flags= DDL_LOG_FLAG_ALTER_PARTITION;
-
     build_table_filename(path_buf, sizeof(path_buf) - 1, lpt->db.str,
                          lpt->table_name.str, "", 0);
     path= path_buf;
@@ -6205,6 +6201,9 @@ public:
 
   bool build_names(partition_element *part_elem, partition_element *sub_elem)
   {
+    bzero(&ddl_log_entry, sizeof(ddl_log_entry));
+    ddl_log_entry.flags= DDL_LOG_FLAG_ALTER_PARTITION;
+
     lex_string_set(&ddl_log_entry.handler_name,
                    ha_resolve_storage_engine_name(part_elem->engine_type));
     DBUG_ASSERT(from_name_type != SKIP_PART_NAME);
@@ -6272,7 +6271,8 @@ public:
     if (build_names(part_elem, sub_elem))
       return true;
 
-    ddl_log_entry.action_type= DDL_LOG_RENAME_ACTION;
+    ddl_log_entry.action_type= DDL_LOG_RENAME_TABLE_ACTION;
+    ddl_log_entry.phase= DDL_RENAME_PHASE_TABLE;
     ddl_log_entry.from_name= { from_name, strlen(from_name) };
     ddl_log_entry.name= { to_name, strlen(to_name) };
     ddl_log_entry.next_entry= rollback_chain->list ? rollback_chain->list->entry_pos : 0;
@@ -6309,7 +6309,8 @@ public:
     if (build_names(part_elem, sub_elem))
       return true;
 
-    ddl_log_entry.action_type= DDL_LOG_RENAME_ACTION;
+    ddl_log_entry.action_type= DDL_LOG_RENAME_TABLE_ACTION;
+    ddl_log_entry.phase= DDL_RENAME_PHASE_TABLE;
     ddl_log_entry.from_name= { to_name, strlen(to_name) };
     ddl_log_entry.name= { from_name, strlen(from_name) };
     ddl_log_entry.next_entry= rollback_chain->list ? rollback_chain->list->entry_pos : 0;
@@ -6369,7 +6370,8 @@ public:
       DBUG_ASSERT(to_name_type == RENAMED_PART_NAME);
       DBUG_ASSERT(part_elem->part_state == PART_TO_BE_DROPPED ||
                   part_elem->part_state == PART_TO_BE_REORGED);
-      ddl_log_entry.action_type= DDL_LOG_RENAME_ACTION;
+      ddl_log_entry.action_type= DDL_LOG_RENAME_TABLE_ACTION;
+      ddl_log_entry.phase= DDL_RENAME_PHASE_TABLE;
       ddl_log_entry.name= { from_name, strlen(from_name) };
       ddl_log_entry.from_name= { to_name, strlen(to_name) };
       output_chain= rollback_chain;
@@ -6378,7 +6380,8 @@ public:
       DBUG_ASSERT(from_name_type == TEMP_PART_NAME);
       DBUG_ASSERT(to_name_type == NORMAL_PART_NAME);
       DBUG_ASSERT(part_elem->part_state == PART_IS_ADDED);
-      ddl_log_entry.action_type= DDL_LOG_RENAME_ACTION;
+      ddl_log_entry.action_type= DDL_LOG_RENAME_TABLE_ACTION;
+      ddl_log_entry.phase= DDL_RENAME_PHASE_TABLE;
       ddl_log_entry.name= { from_name, strlen(from_name) };
       output_chain= rollback_chain;
       break;
