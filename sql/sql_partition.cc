@@ -6274,7 +6274,7 @@ public:
 };
 
 
-class Action_drop : public Alter_partition_action
+class Action_ren_or_drop : public Alter_partition_action
 {
 public:
   using Alter_partition_action::Alter_partition_action;
@@ -6330,6 +6330,12 @@ public:
       ddl_log_entry.name= { from_name, strlen(from_name) };
       output_chain= rollback_chain;
       break;
+    case ADD_PARTITIONS:
+      DBUG_ASSERT(to_name_type == SKIP_PART_NAME);
+      ddl_log_entry.action_type= DDL_LOG_DROP_TABLE_ACTION;
+      ddl_log_entry.tmp_name= { from_name, strlen(from_name) };
+      output_chain= rollback_chain;
+      break;
     case DROP_BACKUPS:
       DBUG_ASSERT(from_name_type == RENAMED_PART_NAME);
       DBUG_ASSERT(to_name_type == SKIP_PART_NAME);
@@ -6378,7 +6384,7 @@ public:
 };
 
 
-class Action_add : public Action_drop
+class Action_add : public Action_ren_or_drop
 {
 protected:
   uint disable_non_uniq_indexes;
@@ -6386,7 +6392,7 @@ protected:
 
 public:
   Action_add(ALTER_PARTITION_PARAM_TYPE *lpt) :
-             Action_drop(lpt)
+             Action_ren_or_drop(lpt)
   {
     disable_non_uniq_indexes= hp->indexes_are_disabled();
     ha_err= hp->allocate_partitions();
@@ -6417,6 +6423,9 @@ public:
   {
     DBUG_ASSERT(phase == ADD_PARTITIONS);
     DBUG_ASSERT(!ha_err);
+
+    if (Action_ren_or_drop::process_partition(part_elem, sub_elem))
+      return true;
 
     ha_err= hp->create_partition(table, lpt->create_info, from_name,
                                  sub_elem ? sub_elem : part_elem,
@@ -6515,7 +6524,7 @@ public:
     case RENAME_TO_BACKUPS:
     case RENAME_ADDED_PARTS:
     case DROP_BACKUPS:
-      return Action_drop::process_partition(part_elem, sub_elem);
+      return Action_ren_or_drop::process_partition(part_elem, sub_elem);
     default:
       DBUG_ASSERT(0);
       return true;
@@ -6949,7 +6958,7 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
 
   if (alter_info->partition_flags & ALTER_PARTITION_DROP)
   {
-    Action_drop action_drop(lpt);
+    Action_ren_or_drop action_drop(lpt);
 
     /*
        part_info chain contains roll forward actions,
@@ -7061,8 +7070,10 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
         ERROR_INJECT("add_partition_5") ||
         write_log_drop_backup_frm(lpt) ||
         ERROR_INJECT("add_partition_6") ||
-        mysql_write_frm(lpt, WFRM_INSTALL_SHADOW|WFRM_BACKUP_ORIGINAL) ||
+        mysql_write_frm(lpt, WFRM_BACKUP_ORIGINAL) ||
         ERROR_INJECT("add_partition_7") ||
+        mysql_write_frm(lpt, WFRM_INSTALL_SHADOW|WFRM_BACKUP_ORIGINAL) ||
+        ERROR_INJECT("add_partition_8") ||
         alter_partition_log_backup(lpt) ||
         alter_partition_binlog(lpt))
     {

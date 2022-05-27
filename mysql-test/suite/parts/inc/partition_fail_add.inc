@@ -26,15 +26,9 @@ SET SESSION debug_dbug=@save_dbug;
 SET SESSION debug_dbug="+d,fail_add_partition_8";
 --source suite/parts/inc/partition_fail.inc
 SET SESSION debug_dbug=@save_dbug;
-SET SESSION debug_dbug="+d,fail_add_partition_9";
+SET SESSION debug_dbug="+d,fail_alter_partition_binlog_1";
 --source suite/parts/inc/partition_fail.inc
 SET SESSION debug_dbug=@save_dbug;
-SET SESSION debug_dbug="+d,fail_add_partition_10";
---source suite/parts/inc/partition_fail.inc
-SET SESSION debug_dbug=@save_dbug;
-SET SESSION debug_dbug="+d,fail_add_partition_11";
---source suite/parts/inc/partition_fail.inc
-SET SESSION debug_dbug=@save_dbug;
-SET SESSION debug_dbug="+d,fail_add_partition_12";
+SET SESSION debug_dbug="+d,fail_alter_partition_binlog_2";
 --source suite/parts/inc/partition_fail.inc
 SET SESSION debug_dbug=@save_dbug;
