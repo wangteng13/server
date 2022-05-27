@@ -6274,7 +6274,14 @@ public:
 };
 
 
-class Action_ren_or_drop : public Alter_partition_action
+/**
+  DDL logger and partiton renamer
+
+  Processes DROP PARTITION action and serves to other ALTER commands as an
+  utility basis.
+*/
+
+class Action_logger : public Alter_partition_action
 {
 public:
   using Alter_partition_action::Alter_partition_action;
@@ -6284,7 +6291,15 @@ public:
     return part_elem->part_state == PART_TO_BE_DROPPED;
   }
 
-  bool process()
+  /**
+    DROP PARTITION processing
+
+    Iterate phases: rename partitions marked for drop to backup partitions and
+    write rollback_chain so it reverts these operations. Write cleanup_chain so
+    it drops backup partitions, but only when rollback_chain is inactive.
+  */
+
+  bool rename_parts()
   {
     if (iterate(RENAME_TO_BACKUPS, NORMAL_PART_NAME, RENAMED_PART_NAME,
                 &part_info->partitions))
@@ -6294,13 +6309,6 @@ public:
       return true;
     return false;
   }
-
-
-  /**
-    Rename partitions marked for drop to backup partitions and write rollback_chain
-    so it reverts these operations. Write cleanup_chain so it drops backup partitions,
-    but only when rollback_chain is inactive.
-  */
 
   bool process_partition(partition_element *part_elem,
                          partition_element *sub_elem)
@@ -6384,7 +6392,11 @@ public:
 };
 
 
-class Action_add : public Action_ren_or_drop
+/**
+  ADD PARTITION action
+*/
+
+class Action_add : public Action_logger
 {
 protected:
   uint disable_non_uniq_indexes;
@@ -6392,7 +6404,7 @@ protected:
 
 public:
   Action_add(ALTER_PARTITION_PARAM_TYPE *lpt) :
-             Action_ren_or_drop(lpt)
+             Action_logger(lpt)
   {
     disable_non_uniq_indexes= hp->indexes_are_disabled();
     ha_err= hp->allocate_partitions();
@@ -6403,7 +6415,11 @@ public:
     return part_elem->part_state == PART_TO_BE_ADDED;
   }
 
-  bool process()
+  /**
+    ADD PARTITION processing
+  */
+
+  bool add_parts()
   {
     if (ha_err)
     {
@@ -6424,7 +6440,7 @@ public:
     DBUG_ASSERT(phase == ADD_PARTITIONS);
     DBUG_ASSERT(!ha_err);
 
-    if (Action_ren_or_drop::process_partition(part_elem, sub_elem))
+    if (Action_logger::process_partition(part_elem, sub_elem))
       return true;
 
     ha_err= hp->create_partition(table, lpt->create_info, from_name,
@@ -6460,6 +6476,10 @@ public:
   {
     return part_elem->part_state == processed_state;
   }
+
+  /**
+    REORGANIZE processing part 1
+  */
 
   bool add_parts_and_copy_data(THD *thd)
   {
@@ -6497,6 +6517,10 @@ public:
     return false;
   }
 
+  /**
+    REORGANIZE processing part 2
+  */
+
   bool rename_parts()
   {
     processed_state= PART_TO_BE_REORGED;
@@ -6524,7 +6548,7 @@ public:
     case RENAME_TO_BACKUPS:
     case RENAME_ADDED_PARTS:
     case DROP_BACKUPS:
-      return Action_ren_or_drop::process_partition(part_elem, sub_elem);
+      return Action_logger::process_partition(part_elem, sub_elem);
     default:
       DBUG_ASSERT(0);
       return true;
@@ -6890,13 +6914,11 @@ bool alter_partition_binlog(ALTER_PARTITION_PARAM_TYPE *lpt)
   Actually perform the change requested by ALTER TABLE of partitions
   previously prepared.
 
-  @param thd                           Thread object
   @param table                         Original table object with new part_info
   @param alter_info                    ALTER TABLE info
+  @param alter_ctx                     ALTER TABLE context
   @param create_info                   Create info for CREATE TABLE
   @param table_list                    List of the table involved
-  @param db                            Database name of new table
-  @param table_name                    Table name of new table
 
   @return Operation status
     @retval TRUE                          Error
@@ -6913,19 +6935,6 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
                                 HA_CREATE_INFO *create_info,
                                 TABLE_LIST *table_list)
 {
-  /*
-    FIXME: Partitioning atomic DDL refactoring.
-
-    DDL log chain state is stored in partition_info:
-
-    struct st_ddl_log_memory_entry *first_log_entry;
-    struct st_ddl_log_memory_entry *exec_log_entry;
-    struct st_ddl_log_memory_entry *frm_log_entry;
-
-    Make it stored and used in DDL_LOG_STATE like it was done in MDEV-17567.
-    This requires mysql_write_frm() refactoring (see comment there).
-  */
-
   /* Set-up struct used to write frm files */
   partition_info *part_info;
   ALTER_PARTITION_PARAM_TYPE lpt_obj;
@@ -6958,7 +6967,7 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
 
   if (alter_info->partition_flags & ALTER_PARTITION_DROP)
   {
-    Action_ren_or_drop action_drop(lpt);
+    Action_logger action_drop(lpt);
 
     /*
        part_info chain contains roll forward actions,
@@ -6976,7 +6985,7 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
         ERROR_INJECT("drop_partition_3") ||
         alter_close_table(lpt) ||
         ERROR_INJECT("drop_partition_4") ||
-        action_drop.process() ||
+        action_drop.rename_parts() ||
         ERROR_INJECT("drop_partition_5") ||
         write_log_drop_backup_frm(lpt) ||
         ERROR_INJECT("drop_partition_6") ||
@@ -6986,9 +6995,7 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
         ERROR_INJECT("drop_partition_8") ||
         alter_partition_log_backup(lpt) ||
         alter_partition_binlog(lpt))
-    {
       goto fail;
-    }
   } /* DROP */
   else if (alter_info->partition_flags & ALTER_PARTITION_CONVERT_OUT)
   {
@@ -7015,9 +7022,7 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
         ERROR_INJECT("convert_partition_9") ||
         alter_partition_log_backup(lpt) ||
         alter_partition_binlog(lpt))
-    {
       goto fail;
-    }
   } /* CONVERT OUT */
   else if ((alter_info->partition_flags & ALTER_PARTITION_CONVERT_IN))
   {
@@ -7047,9 +7052,7 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
         mysql_write_frm(lpt, WFRM_INSTALL_SHADOW|WFRM_BACKUP_ORIGINAL) ||
         alter_partition_log_backup(lpt) ||
         alter_partition_binlog(lpt))
-    {
       goto fail;
-    }
   } /* CONVERT IN */
   else if ((alter_info->partition_flags & ALTER_PARTITION_ADD) &&
            (part_info->part_type == RANGE_PARTITION ||
@@ -7064,7 +7067,7 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
         ERROR_INJECT("add_partition_2") ||
         wait_while_table_is_used(thd, table, HA_EXTRA_NOT_USED) ||
         ERROR_INJECT("add_partition_3") ||
-        action_add.process() ||
+        action_add.add_parts() ||
         ERROR_INJECT("add_partition_4") ||
         alter_close_table(lpt) ||
         ERROR_INJECT("add_partition_5") ||
@@ -7076,9 +7079,7 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
         ERROR_INJECT("add_partition_8") ||
         alter_partition_log_backup(lpt) ||
         alter_partition_binlog(lpt))
-    {
       goto fail;
-    }
   } /* ADD */
   else
   {
@@ -7106,14 +7107,14 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
         ERROR_INJECT("change_partition_6") ||
         write_log_drop_backup_frm(lpt) ||
         ERROR_INJECT("change_partition_7") ||
-        mysql_write_frm(lpt, WFRM_INSTALL_SHADOW|WFRM_BACKUP_ORIGINAL) ||
+        mysql_write_frm(lpt, WFRM_BACKUP_ORIGINAL) ||
         ERROR_INJECT("change_partition_8") ||
+        mysql_write_frm(lpt, WFRM_INSTALL_SHADOW|WFRM_BACKUP_ORIGINAL) ||
+        ERROR_INJECT("change_partition_9") ||
         alter_partition_log_backup(lpt) ||
         alter_partition_binlog(lpt))
-    {
       goto fail;
-    }
-  } /* REBUILD */
+  } /* REORGANIZE */
 
   CRASH_INJECT("done_partition_1");
   ddl_log_complete(rollback_chain);

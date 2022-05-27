@@ -32,8 +32,6 @@ typedef int (*get_part_id_func)(partition_info *part_info, uint32 *part_id,
 typedef int (*get_subpart_id_func)(partition_info *part_info, uint32 *part_id);
 typedef bool (*check_constants_func)(THD *thd, partition_info *part_info);
  
-struct st_ddl_log_memory_entry;
-
 #define MAX_PART_NAME_SIZE 8
 
 
