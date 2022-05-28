@@ -6237,8 +6237,11 @@ public:
       /* Log rollback from backup */
       DBUG_ASSERT(from_name_type == NORMAL_PART_NAME);
       DBUG_ASSERT(to_name_type == RENAMED_PART_NAME);
-      DBUG_ASSERT(part_elem->part_state == PART_TO_BE_DROPPED ||
-                  part_elem->part_state == PART_TO_BE_REORGED);
+      DBUG_ASSERT(part_elem->part_state & (
+                    PART_TO_BE_DROPPED |
+                    PART_TO_BE_REORGED |
+                    PART_REORGED_DROPPED |
+                    PART_CHANGED));
       ddl_log_entry.action_type= DDL_LOG_RENAME_TABLE_ACTION;
       ddl_log_entry.phase= DDL_RENAME_PHASE_TABLE;
       ddl_log_entry.name= { from_name, strlen(from_name) };
@@ -6248,7 +6251,6 @@ public:
     case RENAME_ADDED_PARTS:
       DBUG_ASSERT(from_name_type == TEMP_PART_NAME);
       DBUG_ASSERT(to_name_type == NORMAL_PART_NAME);
-      DBUG_ASSERT(part_elem->part_state == PART_IS_ADDED);
       ddl_log_entry.action_type= DDL_LOG_RENAME_TABLE_ACTION;
       ddl_log_entry.phase= DDL_RENAME_PHASE_TABLE;
       ddl_log_entry.name= { from_name, strlen(from_name) };
@@ -6264,8 +6266,11 @@ public:
     case DROP_BACKUPS:
       DBUG_ASSERT(from_name_type == RENAMED_PART_NAME);
       DBUG_ASSERT(to_name_type == SKIP_PART_NAME);
-      DBUG_ASSERT(part_elem->part_state == PART_TO_BE_DROPPED ||
-                  part_elem->part_state == PART_TO_BE_REORGED);
+      DBUG_ASSERT(part_elem->part_state & (
+                    PART_TO_BE_DROPPED |
+                    PART_TO_BE_REORGED |
+                    PART_REORGED_DROPPED |
+                    PART_CHANGED));
       ddl_log_entry.action_type= DDL_LOG_DROP_TABLE_ACTION;
       ddl_log_entry.tmp_name= { from_name, strlen(from_name) };
       output_chain= cleanup_chain;
@@ -6446,8 +6451,6 @@ public:
       return true;
     }
 
-    // FIXME: why this is needed? This is overridden many times for subpartitions
-    part_elem->part_state= PART_IS_ADDED;
     return false;
   }
 };
@@ -6459,14 +6462,14 @@ public:
 
 class Alter_partition_change : public Alter_partition_add
 {
-  partition_state processed_state;
+  uint processed_state;
 
 public:
   using Alter_partition_add::Alter_partition_add;
 
   bool check_state(partition_element *part_elem)
   {
-    return part_elem->part_state == processed_state;
+    return part_elem->part_state & processed_state;
   }
 
   /**
@@ -6482,7 +6485,7 @@ public:
       hp->print_error(ha_err, MYF(0));
       return true;
     }
-    processed_state= PART_TO_BE_ADDED;
+    processed_state= (PART_TO_BE_ADDED|PART_CHANGED);
     if (iterate(ADD_PARTITIONS, TEMP_PART_NAME, SKIP_PART_NAME,
                 &part_info->partitions))
       return true;
@@ -6515,17 +6518,31 @@ public:
 
   bool rename_parts()
   {
-    processed_state= PART_TO_BE_REORGED;
+    if (part_info->temp_partitions.elements)
+    {
+      processed_state= PART_TO_BE_REORGED;
+      if (iterate(RENAME_TO_BACKUPS, NORMAL_PART_NAME, RENAMED_PART_NAME,
+                  &part_info->temp_partitions))
+        return true;
+    }
+    processed_state= PART_CHANGED|PART_REORGED_DROPPED;
     if (iterate(RENAME_TO_BACKUPS, NORMAL_PART_NAME, RENAMED_PART_NAME,
-                &part_info->temp_partitions))
+                &part_info->partitions))
       return true;
-    processed_state= PART_IS_ADDED;
+    processed_state= PART_TO_BE_ADDED|PART_CHANGED;
     if (iterate(RENAME_ADDED_PARTS, TEMP_PART_NAME, NORMAL_PART_NAME,
                 &part_info->partitions))
       return true;
-    processed_state= PART_TO_BE_REORGED;
+    if (part_info->temp_partitions.elements)
+    {
+      processed_state= PART_TO_BE_REORGED;
+      if (iterate(DROP_BACKUPS, RENAMED_PART_NAME, SKIP_PART_NAME,
+                  &part_info->temp_partitions))
+        return true;
+    }
+    processed_state= PART_CHANGED|PART_REORGED_DROPPED;
     if (iterate(DROP_BACKUPS, RENAMED_PART_NAME, SKIP_PART_NAME,
-                &part_info->temp_partitions))
+                &part_info->partitions))
       return true;
     return false;
   }
