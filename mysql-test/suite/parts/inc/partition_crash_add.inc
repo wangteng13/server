@@ -29,7 +29,7 @@ SET SESSION debug_dbug=@save_dbug;
 SET SESSION debug_dbug="+d,crash_alter_partition_binlog_1";
 --source suite/parts/inc/partition_crash.inc
 SET SESSION debug_dbug=@save_dbug;
-SET SESSION debug_dbug="+d,crash_alter_partition_binlog_1";
+SET SESSION debug_dbug="+d,crash_alter_partition_binlog_2";
 --source suite/parts/inc/partition_crash.inc
 SET SESSION debug_dbug=@save_dbug;
 SET SESSION debug_dbug="+d,crash_done_partition_1";

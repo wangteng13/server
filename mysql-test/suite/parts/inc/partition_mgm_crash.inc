@@ -17,6 +17,7 @@ flush tables;
 let $subpartitioning= ;
 if ($MTR_COMBINATION_SUBPARTITION)
 {
+  # `select()` is used just to put space in front of string...
   let $subpartitioning=`select(' SUBPARTITION BY HASH(a) SUBPARTITIONS 2')`;
 }
 
@@ -53,13 +54,13 @@ if ($do_fail)
 }
 let $crash_statement= ALTER TABLE t1 REORGANIZE PARTITION p10 INTO
 (PARTITION p10 VALUES IN (10,11,12,13,14,15,16,17,18,19),
- PARTITION p20 VALUES IN (20,21,22,23,24,25,26,27,28,29));
-if ($do_crash0)
+ PARTITION p15 VALUES IN (20,21,22,23,24));
+if ($do_crash)
 {
 --source suite/parts/inc/partition_crash_change.inc
 }
 let $fail_statement= $crash_statement;
-if ($do_fail0)
+if ($do_fail)
 {
 --source suite/parts/inc/partition_fail_change.inc
 }

@@ -6252,6 +6252,7 @@ public:
       ddl_log_entry.action_type= DDL_LOG_RENAME_TABLE_ACTION;
       ddl_log_entry.phase= DDL_RENAME_PHASE_TABLE;
       ddl_log_entry.name= { from_name, strlen(from_name) };
+      ddl_log_entry.from_name= { to_name, strlen(to_name) };
       output_chain= rollback_chain;
       break;
     case ADD_PARTITIONS:
