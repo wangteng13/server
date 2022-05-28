@@ -6111,7 +6111,7 @@ static void release_part_info_log_entries(DDL_LOG_MEMORY_ENTRY *log_entry)
   utility basis.
 */
 
-class Action_logger
+class Alter_partition_logger
 {
   char path_buf[FN_REFLEN + 1];
 
@@ -6142,13 +6142,13 @@ public:
     NO_PHASE= 255
   } phase;
 
-  Action_logger(ALTER_PARTITION_PARAM_TYPE *lpt) :
-                path(NULL), from_name_type(SKIP_PART_NAME),
-                to_name_type(SKIP_PART_NAME),
-                lpt(lpt), table(lpt->table), part_info(lpt->part_info),
-                rollback_chain(&lpt->rollback_chain),
-                cleanup_chain(&lpt->cleanup_chain),
-                hp((ha_partition *) table->file)
+  Alter_partition_logger(ALTER_PARTITION_PARAM_TYPE *lpt) :
+    path(NULL), from_name_type(SKIP_PART_NAME),
+    to_name_type(SKIP_PART_NAME),
+    lpt(lpt), table(lpt->table), part_info(lpt->part_info),
+    rollback_chain(&lpt->rollback_chain),
+    cleanup_chain(&lpt->cleanup_chain),
+    hp((ha_partition *) table->file)
   {
     DBUG_ASSERT(table->file->ht->db_type == DB_TYPE_PARTITION_DB);
     build_table_filename(path_buf, sizeof(path_buf) - 1, lpt->db.str,
@@ -6156,7 +6156,7 @@ public:
     path= path_buf;
   }
 
-  virtual ~Action_logger() {}
+  virtual ~Alter_partition_logger() {}
   bool iterate(Phase phase, uint from_name_arg, uint to_name_arg,
                List<partition_element> *parts);
 
@@ -6308,7 +6308,7 @@ public:
 };
 
 
-class Action_convert_in : public Action_logger
+class Action_convert_in : public Alter_partition_logger
 {
 public:
   bool check_state(partition_element *part_elem)
@@ -6320,7 +6320,7 @@ public:
   }
 
   Action_convert_in(ALTER_PARTITION_PARAM_TYPE *lpt) :
-                    Action_logger(lpt)
+                    Alter_partition_logger(lpt)
   {
     build_table_filename(to_name, sizeof(to_name) - 1, lpt->alter_ctx->new_db.str,
                         lpt->alter_ctx->new_name.str, "", 0);
@@ -6387,15 +6387,15 @@ public:
   ADD PARTITION action
 */
 
-class Action_add : public Action_logger
+class Alter_partition_add : public Alter_partition_logger
 {
 protected:
   uint disable_non_uniq_indexes;
   int ha_err;
 
 public:
-  Action_add(ALTER_PARTITION_PARAM_TYPE *lpt) :
-             Action_logger(lpt)
+  Alter_partition_add(ALTER_PARTITION_PARAM_TYPE *lpt) :
+             Alter_partition_logger(lpt)
   {
     disable_non_uniq_indexes= hp->indexes_are_disabled();
     ha_err= hp->allocate_partitions();
@@ -6431,7 +6431,7 @@ public:
     DBUG_ASSERT(phase == ADD_PARTITIONS);
     DBUG_ASSERT(!ha_err);
 
-    if (Action_logger::process_partition(part_elem, sub_elem))
+    if (Alter_partition_logger::process_partition(part_elem, sub_elem))
       return true;
 
     ha_err= hp->create_partition(table, lpt->create_info, from_name,
@@ -6456,12 +6456,12 @@ public:
   Change partition action (ADD HASH/COALESCE/REBUILD/REORGANIZE)
 */
 
-class Action_change : public Action_add
+class Alter_partition_change : public Alter_partition_add
 {
   partition_state processed_state;
 
 public:
-  using Action_add::Action_add;
+  using Alter_partition_add::Alter_partition_add;
 
   bool check_state(partition_element *part_elem)
   {
@@ -6535,11 +6535,11 @@ public:
     switch (phase)
     {
     case ADD_PARTITIONS:
-      return Action_add::process_partition(part_elem, sub_elem);
+      return Alter_partition_add::process_partition(part_elem, sub_elem);
     case RENAME_TO_BACKUPS:
     case RENAME_ADDED_PARTS:
     case DROP_BACKUPS:
-      return Action_logger::process_partition(part_elem, sub_elem);
+      return Alter_partition_logger::process_partition(part_elem, sub_elem);
     default:
       DBUG_ASSERT(0);
       return true;
@@ -6549,7 +6549,7 @@ public:
 };
 
 
-bool Action_logger::iterate(Phase phase_arg,
+bool Alter_partition_logger::iterate(Phase phase_arg,
                                      uint from_name_arg, uint to_name_arg,
                                      List<partition_element> *parts)
 {
@@ -6958,7 +6958,7 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
 
   if (alter_info->partition_flags & ALTER_PARTITION_DROP)
   {
-    Action_logger action_drop(lpt);
+    Alter_partition_logger action_drop(lpt);
 
     /*
        part_info chain contains roll forward actions,
@@ -7050,7 +7050,7 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
             part_info->part_type == LIST_PARTITION))
   {
     DBUG_ASSERT(!(alter_info->partition_flags & ALTER_PARTITION_CONVERT_IN));
-    Action_add action_add(lpt);
+    Alter_partition_add action_add(lpt);
 
     if (write_log_drop_shadow_frm(lpt) ||
         ERROR_INJECT("add_partition_1") ||
@@ -7081,7 +7081,7 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
       REORGANIZE PARTITION
     */
 
-    Action_change action_change(lpt);
+    Alter_partition_change action_change(lpt);
     // FIXME: Test COALESCE, REBUILD, ADD HASH
 
     if (write_log_drop_shadow_frm(lpt) ||
