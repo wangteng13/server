@@ -6104,7 +6104,14 @@ static void release_part_info_log_entries(DDL_LOG_MEMORY_ENTRY *log_entry)
 }
 
 
-class Alter_partition_action
+/**
+  DDL logger and partiton renamer
+
+  Processes DROP PARTITION action and serves to other ALTER commands as an
+  utility basis.
+*/
+
+class Action_logger
 {
   char path_buf[FN_REFLEN + 1];
 
@@ -6135,13 +6142,13 @@ public:
     NO_PHASE= 255
   } phase;
 
-  Alter_partition_action(ALTER_PARTITION_PARAM_TYPE *lpt) :
-                         path(NULL), from_name_type(SKIP_PART_NAME),
-                         to_name_type(SKIP_PART_NAME),
-                         lpt(lpt), table(lpt->table), part_info(lpt->part_info),
-                         rollback_chain(&lpt->rollback_chain),
-                         cleanup_chain(&lpt->cleanup_chain),
-                         hp((ha_partition *) table->file)
+  Action_logger(ALTER_PARTITION_PARAM_TYPE *lpt) :
+                path(NULL), from_name_type(SKIP_PART_NAME),
+                to_name_type(SKIP_PART_NAME),
+                lpt(lpt), table(lpt->table), part_info(lpt->part_info),
+                rollback_chain(&lpt->rollback_chain),
+                cleanup_chain(&lpt->cleanup_chain),
+                hp((ha_partition *) table->file)
   {
     DBUG_ASSERT(table->file->ht->db_type == DB_TYPE_PARTITION_DB);
     build_table_filename(path_buf, sizeof(path_buf) - 1, lpt->db.str,
@@ -6149,13 +6156,9 @@ public:
     path= path_buf;
   }
 
-  virtual ~Alter_partition_action() {}
+  virtual ~Action_logger() {}
   bool iterate(Phase phase, uint from_name_arg, uint to_name_arg,
                List<partition_element> *parts);
-
-  virtual bool check_state(partition_element *part_elem)= 0;
-  virtual bool process_partition(partition_element *part_elem,
-                                 partition_element *sub_elem)= 0;
 
   bool build_names(partition_element *part_elem, partition_element *sub_elem)
   {
@@ -6196,96 +6199,8 @@ public:
 
     return false;
   }
-};
 
-
-class Action_convert_in : public Alter_partition_action
-{
-public:
-  bool check_state(partition_element *part_elem)
-  {
-    // FIXME: refine
-    return part_elem->part_state == PART_TO_BE_DROPPED ||
-           part_elem->part_state == PART_TO_BE_ADDED ||
-           part_elem->part_state == PART_CHANGED;
-  }
-
-  Action_convert_in(ALTER_PARTITION_PARAM_TYPE *lpt) :
-                    Alter_partition_action(lpt)
-  {
-    build_table_filename(to_name, sizeof(to_name) - 1, lpt->alter_ctx->new_db.str,
-                        lpt->alter_ctx->new_name.str, "", 0);
-  }
-
-  bool process_partition(partition_element *part_elem,
-                         partition_element *sub_elem)
-  {
-    DBUG_ASSERT(phase == NO_PHASE);
-    DBUG_ASSERT(to_name);
-    DBUG_ASSERT(part_elem->part_state == PART_TO_BE_ADDED);
-
-    ddl_log_entry.action_type= DDL_LOG_RENAME_TABLE_ACTION;
-    ddl_log_entry.phase= DDL_RENAME_PHASE_TABLE;
-    ddl_log_entry.from_name= { from_name, strlen(from_name) };
-    ddl_log_entry.name= { to_name, strlen(to_name) };
-    ddl_log_entry.next_entry= rollback_chain->list ? rollback_chain->list->entry_pos : 0;
-
-    if (ddl_log_write_entry(&ddl_log_entry, &log_entry))
-      return true;
-    ddl_log_add_entry(rollback_chain, log_entry);
-
-    return false;
-  }
-};
-
-
-class Action_convert_out : public Action_convert_in
-{
-public:
-  using Action_convert_in::Action_convert_in;
-
-  bool check_state(partition_element *part_elem)
-  {
-    // FIXME: refine
-    return part_elem->part_state == PART_TO_BE_DROPPED ||
-           part_elem->part_state == PART_TO_BE_ADDED ||
-           part_elem->part_state == PART_CHANGED;
-  }
-
-  bool process_partition(partition_element *part_elem,
-                         partition_element *sub_elem)
-  {
-    DBUG_ASSERT(phase == NO_PHASE);
-    DBUG_ASSERT(to_name);
-    DBUG_ASSERT(part_elem->part_state == PART_TO_BE_DROPPED);
-
-    ddl_log_entry.action_type= DDL_LOG_RENAME_TABLE_ACTION;
-    ddl_log_entry.phase= DDL_RENAME_PHASE_TABLE;
-    ddl_log_entry.from_name= { to_name, strlen(to_name) };
-    ddl_log_entry.name= { from_name, strlen(from_name) };
-    ddl_log_entry.next_entry= rollback_chain->list ? rollback_chain->list->entry_pos : 0;
-
-    if (ddl_log_write_entry(&ddl_log_entry, &log_entry))
-      return true;
-    ddl_log_add_entry(rollback_chain, log_entry);
-
-    return false;
-  }
-};
-
-
-/**
-  DDL logger and partiton renamer
-
-  Processes DROP PARTITION action and serves to other ALTER commands as an
-  utility basis.
-*/
-
-class Action_logger : public Alter_partition_action
-{
-public:
-  using Alter_partition_action::Alter_partition_action;
-
+  virtual
   bool check_state(partition_element *part_elem)
   {
     return part_elem->part_state == PART_TO_BE_DROPPED;
@@ -6310,6 +6225,7 @@ public:
     return false;
   }
 
+  virtual
   bool process_partition(partition_element *part_elem,
                          partition_element *sub_elem)
   {
@@ -6386,6 +6302,81 @@ public:
         return true;
       }
     }
+
+    return false;
+  }
+};
+
+
+class Action_convert_in : public Action_logger
+{
+public:
+  bool check_state(partition_element *part_elem)
+  {
+    // FIXME: refine
+    return part_elem->part_state == PART_TO_BE_DROPPED ||
+           part_elem->part_state == PART_TO_BE_ADDED ||
+           part_elem->part_state == PART_CHANGED;
+  }
+
+  Action_convert_in(ALTER_PARTITION_PARAM_TYPE *lpt) :
+                    Action_logger(lpt)
+  {
+    build_table_filename(to_name, sizeof(to_name) - 1, lpt->alter_ctx->new_db.str,
+                        lpt->alter_ctx->new_name.str, "", 0);
+  }
+
+  bool process_partition(partition_element *part_elem,
+                         partition_element *sub_elem)
+  {
+    DBUG_ASSERT(phase == NO_PHASE);
+    DBUG_ASSERT(to_name);
+    DBUG_ASSERT(part_elem->part_state == PART_TO_BE_ADDED);
+
+    ddl_log_entry.action_type= DDL_LOG_RENAME_TABLE_ACTION;
+    ddl_log_entry.phase= DDL_RENAME_PHASE_TABLE;
+    ddl_log_entry.from_name= { from_name, strlen(from_name) };
+    ddl_log_entry.name= { to_name, strlen(to_name) };
+    ddl_log_entry.next_entry= rollback_chain->list ? rollback_chain->list->entry_pos : 0;
+
+    if (ddl_log_write_entry(&ddl_log_entry, &log_entry))
+      return true;
+    ddl_log_add_entry(rollback_chain, log_entry);
+
+    return false;
+  }
+};
+
+
+class Action_convert_out : public Action_convert_in
+{
+public:
+  using Action_convert_in::Action_convert_in;
+
+  bool check_state(partition_element *part_elem)
+  {
+    // FIXME: refine
+    return part_elem->part_state == PART_TO_BE_DROPPED ||
+           part_elem->part_state == PART_TO_BE_ADDED ||
+           part_elem->part_state == PART_CHANGED;
+  }
+
+  bool process_partition(partition_element *part_elem,
+                         partition_element *sub_elem)
+  {
+    DBUG_ASSERT(phase == NO_PHASE);
+    DBUG_ASSERT(to_name);
+    DBUG_ASSERT(part_elem->part_state == PART_TO_BE_DROPPED);
+
+    ddl_log_entry.action_type= DDL_LOG_RENAME_TABLE_ACTION;
+    ddl_log_entry.phase= DDL_RENAME_PHASE_TABLE;
+    ddl_log_entry.from_name= { to_name, strlen(to_name) };
+    ddl_log_entry.name= { from_name, strlen(from_name) };
+    ddl_log_entry.next_entry= rollback_chain->list ? rollback_chain->list->entry_pos : 0;
+
+    if (ddl_log_write_entry(&ddl_log_entry, &log_entry))
+      return true;
+    ddl_log_add_entry(rollback_chain, log_entry);
 
     return false;
   }
@@ -6558,7 +6549,7 @@ public:
 };
 
 
-bool Alter_partition_action::iterate(Phase phase_arg,
+bool Action_logger::iterate(Phase phase_arg,
                                      uint from_name_arg, uint to_name_arg,
                                      List<partition_element> *parts)
 {
