@@ -11374,7 +11374,7 @@ err_with_mdl:
   Prepare the transaction for the alter table's copy phase.
 */
 
-bool mysql_trans_prepare_alter_copy_data(THD *thd)
+int mysql_trans_prepare_alter_copy_data(THD *thd)
 {
   DBUG_ENTER("mysql_trans_prepare_alter_copy_data");
   /*
@@ -11391,9 +11391,9 @@ bool mysql_trans_prepare_alter_copy_data(THD *thd)
   Commit the copy phase of the alter table.
 */
 
-bool mysql_trans_commit_alter_copy_data(THD *thd)
+int mysql_trans_commit_alter_copy_data(THD *thd, bool rollback)
 {
-  bool error= FALSE;
+  int error= 0;
   uint save_unsafe_rollback_flags;
   DBUG_ENTER("mysql_trans_commit_alter_copy_data");
 
@@ -11402,19 +11402,29 @@ bool mysql_trans_commit_alter_copy_data(THD *thd)
 
   DEBUG_SYNC(thd, "alter_table_copy_trans_commit");
 
-  if (ha_enable_transaction(thd, TRUE))
-    DBUG_RETURN(TRUE);
+  if ((error= ha_enable_transaction(thd, TRUE)))
+    DBUG_RETURN(error);
 
-  /*
-    Ensure that the new table is saved properly to disk before installing
-    the new .frm.
-    And that InnoDB's internal latches are released, to avoid deadlock
-    when waiting on other instances of the table before rename (Bug#54747).
-  */
-  if (trans_commit_stmt(thd))
-    error= TRUE;
-  if (trans_commit_implicit(thd))
-    error= TRUE;
+  if (!rollback)
+  {
+    /*
+      Ensure that the new table is saved properly to disk before installing
+      the new .frm.
+      And that InnoDB's internal latches are released, to avoid deadlock
+      when waiting on other instances of the table before rename (Bug#54747).
+    */
+    if (trans_commit_stmt(thd))
+      error= HA_ERR_COMMIT_ERROR;
+    if (trans_commit_implicit(thd))
+      error= HA_ERR_COMMIT_ERROR;
+  }
+  else
+  {
+    if (trans_rollback_stmt(thd))
+      error= HA_ERR_COMMIT_ERROR;
+    if (trans_rollback_implicit(thd))
+      error= HA_ERR_COMMIT_ERROR;
+  }
 
   thd->transaction->stmt.m_unsafe_rollback_flags= save_unsafe_rollback_flags;
   DBUG_RETURN(error);
@@ -11769,7 +11779,7 @@ copy_data_between_tables(THD *thd, TABLE *from, TABLE *to,
   if (backup_reset_alter_copy_lock(thd))
     error= 1;
 
-  if (unlikely(mysql_trans_commit_alter_copy_data(thd)))
+  if (unlikely(mysql_trans_commit_alter_copy_data(thd, false)))
     error= 1;
 
  err:

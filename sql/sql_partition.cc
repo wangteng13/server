@@ -6225,6 +6225,30 @@ public:
     return false;
   }
 
+  bool debug_crash_or_fail()
+  {
+#ifndef DBUG_OFF
+    switch (phase)
+    {
+    case RENAME_TO_BACKUPS:
+      if (ERROR_INJECT("alter_partition_rename_to_backup"))
+        return true;
+      break;
+    case RENAME_ADDED_PARTS:
+      if (ERROR_INJECT("alter_partition_rename_added_part"))
+        return true;
+      break;
+    case DROP_BACKUPS:
+      if (ERROR_INJECT("alter_partition_rename_drop_backup"))
+        return true;
+      break;
+    default:
+      break;
+    }
+#endif
+    return false;
+  }
+
   virtual
   bool process_partition(partition_element *part_elem,
                          partition_element *sub_elem)
@@ -6309,7 +6333,7 @@ public:
       }
     }
 
-    return false;
+    return debug_crash_or_fail();
   }
 };
 
@@ -6451,6 +6475,9 @@ public:
       return true;
     }
 
+    if (ERROR_INJECT("alter_partition_add_1"))
+      return true;
+
     return false;
   }
 };
@@ -6490,22 +6517,15 @@ public:
                 &part_info->partitions))
       return true;
 
-    if (mysql_trans_prepare_alter_copy_data(thd))
+    if ((ha_err= mysql_trans_prepare_alter_copy_data(thd)) ||
+        ERROR_INJECT("change_partition_add_parts_1") ||
+        (ha_err= hp->copy_partitions(&lpt->copied, &lpt->deleted)) ||
+        ERROR_INJECT("change_partition_add_parts_2") ||
+        (ha_err= mysql_trans_commit_alter_copy_data(thd, false)) ||
+        ERROR_INJECT("change_partition_add_parts_3"))
     {
-      // FIXME: test
-      return true;
-    }
-
-    if ((ha_err= hp->copy_partitions(&lpt->copied, &lpt->deleted)))
-    {
-      // FIXME: test
+      (void) mysql_trans_commit_alter_copy_data(thd, true);
       hp->print_error(ha_err, MYF(0));
-      return true;
-    }
-
-    if (mysql_trans_commit_alter_copy_data(thd))
-    {
-      // FIXME: test
       return true;
     }
 
@@ -6529,9 +6549,13 @@ public:
     if (iterate(RENAME_TO_BACKUPS, NORMAL_PART_NAME, RENAMED_PART_NAME,
                 &part_info->partitions))
       return true;
+    if (ERROR_INJECT("change_partition_rename_parts_1"))
+      return true;
     processed_state= PART_TO_BE_ADDED|PART_CHANGED;
     if (iterate(RENAME_ADDED_PARTS, TEMP_PART_NAME, NORMAL_PART_NAME,
                 &part_info->partitions))
+      return true;
+    if (ERROR_INJECT("change_partition_rename_parts_2"))
       return true;
     if (part_info->temp_partitions.elements)
     {
@@ -7100,7 +7124,6 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
     */
 
     Alter_partition_change action_change(lpt);
-    // FIXME: Test COALESCE, REBUILD, ADD HASH
 
     if (write_log_drop_shadow_frm(lpt) ||
         ERROR_INJECT("change_partition_1") ||

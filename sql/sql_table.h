@@ -149,8 +149,8 @@ bool mysql_prepare_alter_table(THD *thd, TABLE *table,
                                HA_CREATE_INFO *create_info,
                                Alter_info *alter_info,
                                Alter_table_ctx *alter_ctx);
-bool mysql_trans_prepare_alter_copy_data(THD *thd);
-bool mysql_trans_commit_alter_copy_data(THD *thd);
+int mysql_trans_prepare_alter_copy_data(THD *thd);
+int mysql_trans_commit_alter_copy_data(THD *thd, bool rollback);
 bool mysql_alter_table(THD *thd, const LEX_CSTRING *new_db,
                        const LEX_CSTRING *new_name,
                        HA_CREATE_INFO *create_info,
