@@ -9148,7 +9148,7 @@ optimize_straight_join(JOIN *join, table_map remaining_tables)
   memcpy((uchar*) join->best_positions, (uchar*) join->positions,
          sizeof(POSITION)*idx);
   join->join_record_count= record_count;
-  join->best_read= read_time - 0.001;
+  join->best_read= read_time - COST_EPS;
 }
 
 
@@ -10353,7 +10353,11 @@ best_extension_by_limited_search(JOIN      *join,
                                        read_time,
                                        current_read_time,
                                        "prune_by_cost"););
-        trace_one_table.add("pruned_by_cost", true);
+        trace_one_table
+          .add("pruned_by_cost", true)
+          .add("current_cost", current_read_time)
+          .add("best_cost",    join->best_read + COST_EPS);
+
         restore_prev_nj_state(s);
         restore_prev_sj_state(remaining_tables, s, idx);
         continue;
@@ -10472,7 +10476,7 @@ best_extension_by_limited_search(JOIN      *join,
           memcpy((uchar*) join->best_positions, (uchar*) join->positions,
                  sizeof(POSITION) * (idx + 1));
           join->join_record_count= partial_join_cardinality;
-          join->best_read= current_read_time - 0.001;
+          join->best_read= current_read_time - COST_EPS;
         }
         DBUG_EXECUTE("opt", print_plan(join, idx+1,
                                        current_record_count,
