@@ -6080,30 +6080,6 @@ static bool alter_partition_convert_out(ALTER_PARTITION_PARAM_TYPE *lpt)
 }
 
 
-/*
-  Release all log entries for this partition info struct
-  SYNOPSIS
-    release_part_info_log_entries()
-    first_log_entry                 First log entry in list to release
-  RETURN VALUES
-    NONE
-*/
-
-// FIXME: remove
-static void release_part_info_log_entries(DDL_LOG_MEMORY_ENTRY *log_entry)
-{
-  DBUG_ENTER("release_part_info_log_entries");
-
-  while (log_entry)
-  {
-    DDL_LOG_MEMORY_ENTRY *next= log_entry->next_active_log_entry;
-    ddl_log_release_memory_entry(log_entry);
-    log_entry= next;
-  }
-  DBUG_VOID_RETURN;
-}
-
-
 /**
   DDL logger and partiton renamer
 
@@ -6678,7 +6654,6 @@ static bool write_log_drop_frm(ALTER_PARTITION_PARAM_TYPE *lpt,
   DBUG_RETURN(FALSE);
 
 error:
-  release_part_info_log_entries(drop_chain->list);
   mysql_mutex_unlock(&LOCK_gdl);
   drop_chain->list= NULL;
   my_error(ER_DDL_LOG_ERROR, MYF(0));
