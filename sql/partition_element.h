@@ -170,6 +170,11 @@ public:
     DBUG_ASSERT(!num_subparts || parent_part);
     return num_subparts ? parent_part->id * num_subparts + id : id;
   }
+
+  uint32 serial_id(partition_element *sub_elem, uint num_subparts) const
+  {
+    return sub_elem ? sub_elem->serial_id(num_subparts) : serial_id(num_subparts);
+  }
 };
 
 #endif /* PARTITION_ELEMENT_INCLUDED */

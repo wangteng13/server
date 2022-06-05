@@ -21,6 +21,7 @@ if ($MTR_COMBINATION_SUBPARTITION)
   let $subpartitioning=`select(' SUBPARTITION BY HASH(a) SUBPARTITIONS 2')`;
 }
 
+let $drop_statement= ;
 let $create_statement= CREATE TABLE t1 (a INT, b VARCHAR(64))
 ENGINE = $engine
 PARTITION BY LIST (a)$subpartitioning
@@ -63,6 +64,20 @@ if ($do_fail)
 {
   --source suite/parts/inc/iterate_points_fail.inc
 }
+
+--source suite/parts/inc/define_points_convout.inc
+let $crash_statement= ALTER TABLE t1 CONVERT PARTITION p10 TO TABLE tp10;
+let $drop_statement= DROP TABLE IF EXISTS tp10;
+if ($do_crash)
+{
+  --source suite/parts/inc/iterate_points_crash.inc
+}
+let $fail_statement= $crash_statement;
+if ($do_fail)
+{
+  --source suite/parts/inc/iterate_points_fail.inc
+}
+let $drop_statement= ;
 
 --source suite/parts/inc/define_points_change.inc
 let $crash_statement= ALTER TABLE t1 REORGANIZE PARTITION p10, p20 INTO

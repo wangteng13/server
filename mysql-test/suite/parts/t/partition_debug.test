@@ -66,6 +66,8 @@ let $insert_statement2= insert into t2 values (32), (42), (52);
 
 let $fail_statement= alter table t1 convert table t2 to partition pn values less than maxvalue;
 
+if (0)
+{
 set @save_dbug=@@debug_dbug;
 set session debug_dbug="+d,fail_convert_partition_1";
 --source suite/parts/inc/partition_fail_t2.inc
@@ -97,6 +99,7 @@ set session debug_dbug=@save_dbug;
 set session debug_dbug="+d,fail_convert_partition_11";
 --source suite/parts/inc/partition_fail_t2.inc
 set session debug_dbug=@save_dbug;
+}
 
 
 --echo #
@@ -121,7 +124,7 @@ set session debug_dbug=@save_dbug;
 set session debug_dbug="+d,fail_alter_partition_after_write_frm";
 --source suite/parts/inc/partition_fail.inc
 set session debug_dbug=@save_dbug;
-set session debug_dbug="+d,error_convert_partition_00";
+set session debug_dbug="+d,alter_partition_convout_1";
 --source suite/parts/inc/partition_fail.inc
 #set session debug_dbug=@save_dbug;
 #set session debug_dbug="+d,fail_convert_partition_01";

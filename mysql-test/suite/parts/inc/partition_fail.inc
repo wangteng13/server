@@ -1,9 +1,14 @@
 # Include file to decrease test code duplication
 
-RESET MASTER;
-let $keep_include_silent= 1;
-let $grep_script= ALTER;
-let $binlog_file=master-bin.000001;
+let $log_bin= `select @@global.log_bin`;
+if ($log_bin)
+{
+  RESET MASTER;
+  let $keep_include_silent= 1;
+  let $grep_script= ALTER;
+  let $binlog_file=master-bin.000001;
+}
+
 --eval $create_statement
 --eval $insert_statement
 --let $dbug_flag= `select @@session.debug_dbug`
@@ -40,10 +45,20 @@ backup stage end;
 --disconnect con_backup
 --enable_query_log
 
---source include/show_binlog_events.inc
+if ($log_bin)
+{
+  --source include/show_binlog_events.inc
+}
 DROP TABLE t1;
+if ($drop_statement)
+{
+  --eval $drop_statement
+}
 
-RESET MASTER;
+if ($log_bin)
+{
+  RESET MASTER;
+}
 --eval $create_statement
 --eval $insert_statement
 --echo # $dbug_flag: BEFORE failure (under LOCK TABLE)
@@ -63,6 +78,13 @@ show warnings;
 SHOW CREATE TABLE t1;
 --sorted_result
 SELECT * FROM t1;
---source include/show_binlog_events.inc
+if ($log_bin)
+{
+  --source include/show_binlog_events.inc
+}
 UNLOCK TABLES;
 DROP TABLE t1;
+if ($drop_statement)
+{
+  --eval $drop_statement
+}

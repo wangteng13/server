@@ -1644,10 +1644,8 @@ int ha_partition::allocate_partitions()
       do
       {
         handler **new_file= &new_file_array[part_count++];
-        if (!(*new_file=
-              get_new_handler(table->s,
-                              thd->mem_root,
-                              part_elem->engine_type)))
+        if (!(*new_file= ::get_new_handler(table->s, thd->mem_root,
+                                           part_elem->engine_type)))
         {
           DBUG_RETURN(HA_ERR_OUT_OF_MEM);
         }
@@ -2530,7 +2528,7 @@ bool ha_partition::create_handlers(MEM_ROOT *mem_root)
   for (i= 0; i < m_tot_parts; i++)
   {
     handlerton *hton= plugin_data(m_engine_array[i], handlerton*);
-    if (!(m_file[i]= get_new_handler(table_share, mem_root, hton)))
+    if (!(m_file[i]= ::get_new_handler(table_share, mem_root, hton)))
       DBUG_RETURN(TRUE);
     DBUG_PRINT("info", ("engine_type: %u", hton->db_type));
   }
@@ -2591,8 +2589,8 @@ bool ha_partition::new_handlers_from_part_info(MEM_ROOT *mem_root)
     {
       for (j= 0; j < m_part_info->num_subparts; j++)
       {
-	if (!(m_file[part_count++]= get_new_handler(table_share, mem_root,
-                                                    part_elem->engine_type)))
+	if (!(m_file[part_count++]= ::get_new_handler(table_share, mem_root,
+                                                      part_elem->engine_type)))
           goto error;
 	DBUG_PRINT("info", ("engine_type: %u",
                    (uint) ha_legacy_type(part_elem->engine_type)));
@@ -2600,8 +2598,8 @@ bool ha_partition::new_handlers_from_part_info(MEM_ROOT *mem_root)
     }
     else
     {
-      if (!(m_file[part_count++]= get_new_handler(table_share, mem_root,
-                                                  part_elem->engine_type)))
+      if (!(m_file[part_count++]= ::get_new_handler(table_share, mem_root,
+                                                    part_elem->engine_type)))
         goto error;
       DBUG_PRINT("info", ("engine_type: %u",
                  (uint) ha_legacy_type(part_elem->engine_type)));

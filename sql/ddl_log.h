@@ -265,6 +265,7 @@ int ddl_log_execute_recovery();
 /* functions for updating the ddl log */
 bool ddl_log_write(DDL_LOG_STATE *ddl_state,
                    DDL_LOG_ENTRY *ddl_log_entry);
+/* TODO: don't use in exchange_name_with_ddl_log(), remove global declaration */
 bool ddl_log_write_entry(DDL_LOG_ENTRY *ddl_log_entry,
                            DDL_LOG_MEMORY_ENTRY **active_entry);
 
@@ -284,7 +285,7 @@ bool ddl_log_disable_entry(DDL_LOG_STATE *state);
 bool ddl_log_increment_phase(uint entry_pos);
 void ddl_log_release_memory_entry(DDL_LOG_MEMORY_ENTRY *log_entry);
 bool ddl_log_sync();
-/* FIXME: used only in exchange_name_with_ddl_log(), deprecate */
+/* TODO: don't use in exchange_name_with_ddl_log(), remove global declaration */
 bool ddl_log_execute_entry(THD *thd, uint first_entry);
 
 void ddl_log_add_entry(DDL_LOG_STATE *state, DDL_LOG_MEMORY_ENTRY *log_entry);

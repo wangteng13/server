@@ -1,9 +1,13 @@
 # Include file to decrease test code duplication
 
-let $keep_include_silent= 1;
-let $grep_script= ALTER;
-let $binlog_file=master-bin.000001;
-RESET MASTER;
+let $log_bin= `select @@global.log_bin`;
+if ($log_bin)
+{
+  let $keep_include_silent= 1;
+  let $grep_script= ALTER;
+  let $binlog_file=master-bin.000001;
+  RESET MASTER;
+}
 
 --eval $create_statement
 --eval $insert_statement
@@ -41,5 +45,12 @@ SELECT * FROM t1;
 SHOW CREATE TABLE t1;
 --sorted_result
 SELECT * FROM t1;
---source include/show_binlog_events.inc
+if ($log_bin)
+{
+  --source include/show_binlog_events.inc
+}
 DROP TABLE t1;
+if ($drop_statement)
+{
+  --eval $drop_statement
+}
