@@ -6050,11 +6050,11 @@ public:
   enum Phase
   {
     RENAME_TO_BACKUPS= 0,
-    DROP_BACKUPS,
-    ADD_PARTITIONS,
-    RENAME_ADDED_PARTS,
-    CONVERT_OUT,
-    CONVERT_IN,
+    DROP_BACKUPS= 2,
+    ADD_PARTITIONS= 4,
+    RENAME_ADDED_PARTS= 8,
+    CONVERT_OUT= 16,
+    CONVERT_IN= 32,
     NO_PHASE= 255
   } phase;
 
@@ -6088,34 +6088,31 @@ public:
 
     lex_string_set(&ddl_log_entry.handler_name,
                    ha_resolve_storage_engine_name(part_elem->engine_type));
-    DBUG_ASSERT(from_name_type != SKIP_PART_NAME);
     if (!sub_elem)
     {
-      if (create_partition_name(from_name, sizeof(from_name), path,
+      if (from_name_type != SKIP_PART_NAME &&
+          create_partition_name(from_name, sizeof(from_name), path,
                                 part_elem->partition_name, from_name_type,
                                 true /* translate */))
         return true;
-      if (to_name_type != SKIP_PART_NAME)
-      {
-        if (create_partition_name(to_name, sizeof(to_name), path,
-                                  part_elem->partition_name, to_name_type,
-                                  true /* translate */))
-          return true;
-      }
+      if (to_name_type != SKIP_PART_NAME &&
+          create_partition_name(to_name, sizeof(to_name), path,
+                                part_elem->partition_name, to_name_type,
+                                true /* translate */))
+            return true;
     }
     else
     {
-      if (create_subpartition_name(from_name, sizeof(from_name), path,
+      if (from_name_type != SKIP_PART_NAME &&
+          create_subpartition_name(from_name, sizeof(from_name), path,
                                    part_elem->partition_name,
                                    sub_elem->partition_name, from_name_type))
         return true;
-      if (to_name_type != SKIP_PART_NAME)
-      {
-        if (create_subpartition_name(to_name, sizeof(to_name), path,
-                                    part_elem->partition_name,
-                                    sub_elem->partition_name, to_name_type))
-          return true;
-      }
+      if (to_name_type != SKIP_PART_NAME &&
+          create_subpartition_name(to_name, sizeof(to_name), path,
+                                  part_elem->partition_name,
+                                  sub_elem->partition_name, to_name_type))
+            return true;
     }
 
     return false;
@@ -6194,6 +6191,12 @@ public:
       DBUG_ASSERT(to_name[0]); /* to_name is external table name */
       DBUG_ASSERT(part_elem->part_state & PART_TO_BE_DROPPED);
       break;
+    case CONVERT_IN:
+      DBUG_ASSERT(from_name_type == SKIP_PART_NAME);
+      DBUG_ASSERT(to_name_type == NORMAL_PART_NAME);
+      DBUG_ASSERT(to_name[0]); /* to_name is external table name */
+      DBUG_ASSERT(part_elem->part_state & PART_TO_BE_ADDED);
+      break;
     case ADD_PARTITIONS:
       DBUG_ASSERT(to_name_type == SKIP_PART_NAME);
       break;
@@ -6225,16 +6228,11 @@ public:
     case RENAME_TO_BACKUPS:
     case RENAME_ADDED_PARTS:
     case CONVERT_OUT:
+    case CONVERT_IN:
       ddl_log_entry.action_type= DDL_LOG_RENAME_TABLE_ACTION;
       ddl_log_entry.phase= DDL_RENAME_PHASE_TABLE;
       ddl_log_entry.name= { from_name, strlen(from_name) };
       ddl_log_entry.from_name= { to_name, strlen(to_name) };
-      break;
-    case CONVERT_IN:
-      ddl_log_entry.action_type= DDL_LOG_RENAME_TABLE_ACTION;
-      ddl_log_entry.phase= DDL_RENAME_PHASE_TABLE;
-      ddl_log_entry.from_name= { from_name, strlen(from_name) };
-      ddl_log_entry.name= { to_name, strlen(to_name) };
       break;
     case ADD_PARTITIONS:
       ddl_log_entry.action_type= DDL_LOG_DROP_TABLE_ACTION;
@@ -6263,7 +6261,7 @@ public:
       int ha_err;
       /* Rename partition to backup (protected by rollback_chain). */
       DBUG_ASSERT(table->file->ht->db_type == DB_TYPE_PARTITION_DB);
-      handler *file= (phase == RENAME_ADDED_PARTS ?
+      handler *file= (phase & (RENAME_ADDED_PARTS|CONVERT_IN) ?
                       hp->get_new_handler(part_elem, sub_elem) :
                       hp->get_child_handler(part_elem, sub_elem));
       ha_err= file->ha_rename_table(from_name, to_name);
@@ -6278,108 +6276,6 @@ public:
 
     return debug_crash_or_fail();
   }
-};
-
-
-class Action_convert_in : public Alter_partition_logger
-{
-public:
-  bool check_state(partition_element *part_elem)
-  {
-    // FIXME: refine
-    return part_elem->part_state == PART_TO_BE_DROPPED ||
-           part_elem->part_state == PART_TO_BE_ADDED ||
-           part_elem->part_state == PART_CHANGED;
-  }
-
-  Action_convert_in(ALTER_PARTITION_PARAM_TYPE *lpt) :
-                    Alter_partition_logger(lpt)
-  {
-    build_table_filename(to_name, sizeof(to_name) - 1, lpt->alter_ctx->new_db.str,
-                        lpt->alter_ctx->new_name.str, "", 0);
-  }
-
-  bool process_partition(partition_element *part_elem,
-                         partition_element *sub_elem)
-  {
-    DBUG_ASSERT(phase == NO_PHASE);
-    DBUG_ASSERT(to_name);
-    DBUG_ASSERT(part_elem->part_state == PART_TO_BE_ADDED);
-
-    ddl_log_entry.action_type= DDL_LOG_RENAME_TABLE_ACTION;
-    ddl_log_entry.phase= DDL_RENAME_PHASE_TABLE;
-    ddl_log_entry.from_name= { from_name, strlen(from_name) };
-    ddl_log_entry.name= { to_name, strlen(to_name) };
-    ddl_log_entry.next_entry= rollback_chain->list ? rollback_chain->list->entry_pos : 0;
-
-    if (ddl_log_write_entry(&ddl_log_entry, &log_entry))
-      return true;
-    ddl_log_add_entry(rollback_chain, log_entry);
-
-    return false;
-  }
-};
-
-
-class Alter_partition_conv_out : public Alter_partition_logger
-{
-public:
-  using Alter_partition_logger::Alter_partition_logger;
-
-  bool check_state(partition_element *part_elem)
-  {
-    return part_elem->part_state == PART_TO_BE_DROPPED;
-  }
-
-  /**
-    CONVERT OUT processing
-  */
-
-  bool convert_out()
-  {
-    build_table_filename(to_name, sizeof(to_name) - 1,
-                         lpt->alter_ctx->new_db.str,
-                         lpt->alter_ctx->new_name.str, "", 0);
-
-    if (iterate(CONVERT_OUT, NORMAL_PART_NAME, SKIP_PART_NAME,
-                &part_info->partitions))
-      return true;
-    return false;
-  }
-
-#if 0
-  bool process_partition(partition_element *part_elem,
-                         partition_element *sub_elem)
-  {
-    int error;
-    DBUG_ASSERT(phase == CONVERT_OUT);
-    DBUG_ASSERT(to_name);
-    DBUG_ASSERT(part_elem->part_state == PART_TO_BE_DROPPED);
-
-    ddl_log_entry.action_type= DDL_LOG_RENAME_TABLE_ACTION;
-    ddl_log_entry.phase= DDL_RENAME_PHASE_TABLE;
-    ddl_log_entry.from_name= { to_name, strlen(to_name) };
-    ddl_log_entry.name= { from_name, strlen(from_name) };
-    ddl_log_entry.next_entry= rollback_chain->list ? rollback_chain->list->entry_pos : 0;
-
-    if (ddl_log_write(rollback_chain, &ddl_log_entry))
-    {
-      my_error(ER_DDL_LOG_ERROR, MYF(0));
-      return true;
-    }
-
-    handler *file= hp->get_child_handler(part_elem, sub_elem);
-    if (unlikely(error= file->ha_rename_table(from_name, to_name)) ||
-        ERROR_INJECT("alter_partition_convout_1"))
-    {
-      my_error(ER_ERROR_ON_RENAME, MYF(0), from_name, to_name, my_errno);
-      lpt->table->file->print_error(error, MYF(0));
-      return true;
-    }
-
-    return false;
-  }
-#endif
 };
 
 
@@ -6398,7 +6294,6 @@ public:
              Alter_partition_logger(lpt)
   {
     disable_non_uniq_indexes= hp->indexes_are_disabled();
-    ha_err= hp->allocate_partitions();
   }
 
   bool check_state(partition_element *part_elem)
@@ -6412,9 +6307,9 @@ public:
 
   bool add_parts()
   {
+    ha_err= hp->allocate_partitions();
     if (ha_err)
     {
-      /* ctor initialization failed */
       // FIXME: test
       hp->print_error(ha_err, MYF(0));
       return true;
@@ -6454,7 +6349,9 @@ public:
 
 
 /**
-  Change partition action (ADD HASH/COALESCE/REBUILD/REORGANIZE)
+  Change partition action
+
+  COALESCE / REBUILD / REORGANIZE / CONVERT IN / CONVERT OUT
 */
 
 class Alter_partition_change : public Alter_partition_add
@@ -6475,9 +6372,9 @@ public:
 
   bool add_parts_and_copy_data(THD *thd)
   {
+    ha_err= hp->allocate_partitions();
     if (ha_err)
     {
-      /* ctor initialization failed */
       // FIXME: test
       hp->print_error(ha_err, MYF(0));
       return true;
@@ -6541,6 +6438,50 @@ public:
     return false;
   }
 
+  /**
+    CONVERT OUT processing
+  */
+
+  bool convert_out()
+  {
+    build_table_filename(to_name, sizeof(to_name) - 1,
+                         lpt->alter_ctx->new_db.str,
+                         lpt->alter_ctx->new_name.str, "", 0);
+
+    processed_state= PART_TO_BE_DROPPED;
+    if (iterate(CONVERT_OUT, NORMAL_PART_NAME, SKIP_PART_NAME,
+                &part_info->partitions))
+      return true;
+    return false;
+  }
+
+  /**
+    CONVERT IN processing
+  */
+
+  bool convert_in()
+  {
+    TABLE_LIST* table_from= lpt->table_list->next_local;
+
+    ha_err= hp->allocate_partitions();
+    if (ha_err)
+    {
+      // FIXME: test
+      hp->print_error(ha_err, MYF(0));
+      return true;
+    }
+
+    build_table_filename(from_name, sizeof(from_name) - 1,
+                         table_from->db.str, table_from->table_name.str,
+                         "", 0);
+
+    processed_state= PART_TO_BE_ADDED;
+    if (iterate(CONVERT_IN, SKIP_PART_NAME, NORMAL_PART_NAME,
+                &part_info->partitions))
+      return true;
+    return false;
+  }
+
   bool process_partition(partition_element *part_elem,
                          partition_element *sub_elem)
   {
@@ -6551,6 +6492,8 @@ public:
     case RENAME_TO_BACKUPS:
     case RENAME_ADDED_PARTS:
     case DROP_BACKUPS:
+    case CONVERT_OUT:
+    case CONVERT_IN:
       return Alter_partition_logger::process_partition(part_elem, sub_elem);
     default:
       DBUG_ASSERT(0);
@@ -6668,53 +6611,6 @@ static inline
 bool write_log_drop_backup_frm(ALTER_PARTITION_PARAM_TYPE *lpt)
 {
   return write_log_drop_frm(lpt, &lpt->cleanup_chain, true);
-}
-
-
-// FIXME: remove
-inline
-static bool action_convert_iterate(ALTER_PARTITION_PARAM_TYPE *lpt)
-{
-  bool res;
-  const ulong f= lpt->alter_info->partition_flags;
-  DBUG_ASSERT((f & ALTER_PARTITION_CONVERT_IN) || (f & ALTER_PARTITION_CONVERT_OUT));
-  // FIXME: is this needed (see NOTE below)?
-  DDL_LOG_MEMORY_ENTRY *main_entry= lpt->rollback_chain.main_entry;
-  DBUG_ASSERT (f & ALTER_PARTITION_CONVERT_IN);
-  Action_convert_in act(lpt);
-  res= act.iterate(act.NO_PHASE, NORMAL_PART_NAME, SKIP_PART_NAME,
-                    &lpt->part_info->partitions);
-  /*
-    NOTE: main_entry is "drop shadow frm", we have to keep it like this
-    because partitioning crash-safety disables it at install shadow FRM phase.
-    This is needed to avoid spurious drop action when the shadow frm is replaced
-    by the backup frm and there is nothing to drop.
-  */
-  lpt->rollback_chain.main_entry= main_entry;
-  return res;
-}
-
-
-// FIXME: remove
-static bool write_log_convert_partition(ALTER_PARTITION_PARAM_TYPE *lpt)
-{
-  DDL_LOG_STATE *rollback_chain= &lpt->rollback_chain;
-
-  mysql_mutex_lock(&LOCK_gdl);
-
-  if (action_convert_iterate(lpt))
-    goto error;
-  if (ddl_log_write_execute_entry(rollback_chain->list->entry_pos, 0,
-                                  &rollback_chain->execute_entry))
-    goto error;
-  mysql_mutex_unlock(&LOCK_gdl);
-  return false;
-
-error:
-  mysql_mutex_unlock(&LOCK_gdl);
-  rollback_chain->main_entry= NULL;
-  my_error(ER_DDL_LOG_ERROR, MYF(0));
-  return true;
 }
 
 
@@ -6995,7 +6891,7 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
   } /* DROP */
   else if (alter_info->partition_flags & ALTER_PARTITION_CONVERT_OUT)
   {
-    Alter_partition_conv_out action_conv_out(lpt);
+    Alter_partition_change action_conv_out(lpt);
 
     if (mysql_write_frm(lpt, WFRM_WRITE_CONVERTED_TO) ||
         ERROR_INJECT("convert_partition_1") ||
@@ -7022,6 +6918,7 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
   else if ((alter_info->partition_flags & ALTER_PARTITION_CONVERT_IN))
   {
     TABLE *table_from= table_list->next_local->table;
+    Alter_partition_change action_conv_in(lpt);
 
     if (wait_while_table_is_used(thd, table, HA_EXTRA_NOT_USED) ||
         wait_while_table_is_used(thd, table_from, HA_EXTRA_PREPARE_FOR_RENAME) ||
@@ -7031,15 +6928,17 @@ uint fast_alter_partition_table(THD *thd, TABLE *table,
         check_table_data(lpt))
       goto err;
 
+    close_all_tables_for_name(lpt->thd, table_from->s,
+                              HA_EXTRA_PREPARE_FOR_RENAME, nullptr);
+
     if (write_log_drop_shadow_frm(lpt) ||
         ERROR_INJECT("convert_partition_3") ||
         mysql_write_frm(lpt, WFRM_WRITE_SHADOW) ||
         ERROR_INJECT("convert_partition_4") ||
         alter_close_table(lpt) ||
         ERROR_INJECT("convert_partition_5") ||
-        write_log_convert_partition(lpt) ||
-        ERROR_INJECT("convert_partition_6") ||
-        alter_partition_convert_in(lpt) ||
+        ERROR_INJECT("convert_partition_6") || // FIXME: points
+        action_conv_in.convert_in() ||
         ERROR_INJECT("convert_partition_7") ||
         write_log_drop_backup_frm(lpt) ||
         mysql_write_frm(lpt, WFRM_INSTALL_SHADOW|WFRM_BACKUP_ORIGINAL) ||
