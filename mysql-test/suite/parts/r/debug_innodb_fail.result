@@ -3728,8 +3728,8 @@ DROP TABLE IF EXISTS tp10;
 Warnings:
 Note	1051	Unknown table 'test.tp10'
 set @@debug_dbug= @save_dbug;
-# Fail-point 3: fail_alter_partition_convout_1
-set @@debug_dbug= "+d,fail_alter_partition_convout_1";
+# Fail-point 3: fail_alter_partition_rename_table
+set @@debug_dbug= "+d,fail_alter_partition_rename_table";
 RESET MASTER;
 CREATE TABLE t1 (a INT, b VARCHAR(64))
 ENGINE = 'InnoDB'
@@ -3747,7 +3747,7 @@ INSERT INTO t1 VALUES
 (12, "Original from partition p1"),
 (13, "Original from partition p1"),
 (14, "Original from partition p1");
-# d,ddl_log,fail_alter_partition_convout_1: BEFORE failure
+# d,ddl_log,fail_alter_partition_rename_table: BEFORE failure
 db.opt
 t1#P#p0.ibd
 t1#P#p10.ibd
@@ -3778,11 +3778,10 @@ a	b
 4	Original from partition p0
 ALTER TABLE t1 CONVERT PARTITION p10 TO TABLE tp10;
 ERROR HY000: Unknown error
-# d,ddl_log,fail_alter_partition_convout_1: AFTER failure
+# d,ddl_log,fail_alter_partition_rename_table: AFTER failure
 show warnings;
 Level	Code	Message
 Error	1105	Unknown error
-Error	1025	Error on rename of './test/t1#P#p10' to './test/tp10' (errno: 120 "Didn't find the key on read or update")
 Error	1030	Got error 0 "Internal error/check (Not system error)" from storage engine InnoDB
 db.opt
 t1#P#p0.ibd
@@ -3833,7 +3832,7 @@ INSERT INTO t1 VALUES
 (12, "Original from partition p1"),
 (13, "Original from partition p1"),
 (14, "Original from partition p1");
-# d,ddl_log,fail_alter_partition_convout_1: BEFORE failure (under LOCK TABLE)
+# d,ddl_log,fail_alter_partition_rename_table: BEFORE failure (under LOCK TABLE)
 db.opt
 t1#P#p0.ibd
 t1#P#p10.ibd
@@ -3865,11 +3864,10 @@ a	b
 LOCK TABLE t1 WRITE;
 ALTER TABLE t1 CONVERT PARTITION p10 TO TABLE tp10;
 ERROR HY000: Unknown error
-# d,ddl_log,fail_alter_partition_convout_1: AFTER failure (under LOCK TABLE)
+# d,ddl_log,fail_alter_partition_rename_table: AFTER failure (under LOCK TABLE)
 show warnings;
 Level	Code	Message
 Error	1105	Unknown error
-Error	1025	Error on rename of './test/t1#P#p10' to './test/tp10' (errno: 120 "Didn't find the key on read or update")
 Error	1030	Got error 0 "Internal error/check (Not system error)" from storage engine InnoDB
 db.opt
 t1#P#p0.ibd

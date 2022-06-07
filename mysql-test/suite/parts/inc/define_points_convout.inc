@@ -5,7 +5,7 @@
 
 let $points= 'create_before_create_frm',
   'alter_partition_after_write_frm',
-  'alter_partition_convout_1',
+  'alter_partition_rename_table',
   'convert_partition_1',
   'convert_partition_2',
   'convert_partition_3',
