@@ -7845,7 +7845,13 @@ bool setup_tables(THD *thd, Name_resolution_context *context,
     leaves.empty();
     if (select_lex->prep_leaf_list_state != SELECT_LEX::SAVED)
     {
-      make_leaves_list(thd, leaves, tables, full_table_list, first_select_table);
+      /*
+        For INSERT ... SELECT statements we must not include the first table
+        (where the data is being inserted into) in the list of leaves
+      */
+      auto tables_for_leaves= select_insert ? first_select_table : tables;
+      make_leaves_list(thd, leaves, tables_for_leaves,
+                       full_table_list, first_select_table);
       select_lex->prep_leaf_list_state= SELECT_LEX::READY;
       select_lex->leaf_tables_exec.empty();
     }

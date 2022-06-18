@@ -3660,7 +3660,6 @@ bool mysql_insert_select_prepare(THD *thd)
                            &select_lex->where, TRUE))
     DBUG_RETURN(TRUE);
 
-  DBUG_ASSERT(select_lex->leaf_tables.elements != 0);
   List_iterator<TABLE_LIST> ti(select_lex->leaf_tables);
   TABLE_LIST *table;
   uint insert_tables;
