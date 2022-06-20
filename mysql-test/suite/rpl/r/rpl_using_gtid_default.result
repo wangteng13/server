@@ -85,6 +85,31 @@ connection slave;
 # Validating Using_Gtid=Slave_Pos..
 # ..success
 include/start_slave.inc
+#
+# The MTR include file reset_slave.inc should keep/delete GTID state
+# when reset_slave_keep_gtid_state is set, respectively.
+#
+connection master;
+CREATE TABLE t1 (a INT);
+INSERT INTO t1 VALUES (1);
+DROP TABLE t1;
+include/save_master_gtid.inc
+connection slave;
+include/sync_with_master_gtid.inc
+include/stop_slave.inc
+# Tagging gtid_slave_pos before reset_slave.inc as old_slave_pos
+# Using reset_slave_keep_gtid_state=1 should preserve GTID state
+include/reset_slave.inc
+# Tagging gtid_slave_pos after reset_slave.inc as new_slave_pos
+# Validating old_slave_pos == new_slave_pos..
+# ..success
+# Using reset_slave_keep_gtid_state=0 should empty GTID state
+include/reset_slave.inc
+# Tagging gtid_slave_pos as new_slave_pos
+# Validating new_slave_pos is empty..
+# ..success
+set global gtid_slave_pos="old_slave_pos";
+include/start_slave.inc
 include/rpl_end.inc
 #
 # End of rpl_using_gtid_default.test

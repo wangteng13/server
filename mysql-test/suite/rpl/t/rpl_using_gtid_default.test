@@ -28,6 +28,8 @@
 #           should be provided to the user.
 #   Case 7) The MTR include file rpl_change_topology.inc should implicitly
 #           set MASTER_USE_GTID=NO when provided with $rpl_master_log_file
+#   Case 8) The MTR include file reset_slave.inc should keep/delete GTID state
+#           when reset_slave_keep_gtid_state is set, respectively.
 #
 # References:
 #   MDEV-19801: Change defaults for CHANGE MASTER TO so that GTID-based
@@ -204,6 +206,58 @@ if (`SELECT strcmp("$using_gtid","$expected_default_using_gtid")!= 0`)
     --die Using_Gtid should be back to $expected_default_using_gtid with empty \$rpl_master_log_file
 }
 --echo # ..success
+--source include/start_slave.inc
+
+--echo #
+--echo # The MTR include file reset_slave.inc should keep/delete GTID state
+--echo # when reset_slave_keep_gtid_state is set, respectively.
+--echo #
+--connection master
+CREATE TABLE t1 (a INT);
+INSERT INTO t1 VALUES (1);
+DROP TABLE t1;
+--source include/save_master_gtid.inc
+
+--connection slave
+--source include/sync_with_master_gtid.inc
+--source include/stop_slave.inc
+
+--echo # Tagging gtid_slave_pos before reset_slave.inc as old_slave_pos
+--let $old_slave_pos= `SELECT @@gtid_slave_pos`
+if (`SELECT strcmp("$old_slave_pos","") = 0`)
+{
+    die gtid_slave_pos is empty but should not be;
+}
+
+--echo # Using reset_slave_keep_gtid_state=1 should preserve GTID state
+--let $master_use_gtid_option=Slave_Pos
+--let $reset_slave_keep_gtid_state=1
+--source include/reset_slave.inc
+
+--echo # Tagging gtid_slave_pos after reset_slave.inc as new_slave_pos
+--let $new_slave_pos= `SELECT @@gtid_slave_pos`
+--echo # Validating old_slave_pos == new_slave_pos..
+if ($old_slave_pos != $new_slave_pos)
+{
+    die gtid_slave_pos unexpectedly changed after running reset_slave.inc;
+}
+--echo # ..success
+
+--echo # Using reset_slave_keep_gtid_state=0 should empty GTID state
+--let $master_use_gtid_option=Slave_Pos
+--let $reset_slave_keep_gtid_state=0
+--source include/reset_slave.inc
+
+--echo # Tagging gtid_slave_pos as new_slave_pos
+--let $new_slave_pos= `SELECT @@gtid_slave_pos`
+--echo # Validating new_slave_pos is empty..
+if (`SELECT strcmp("$new_slave_pos","") != 0`)
+{
+    die gtid_slave_pos should be empty after reset_slave.inc without keeping gtid state;
+}
+--echo # ..success
+--replace_result $old_slave_pos old_slave_pos
+eval set global gtid_slave_pos="$old_slave_pos";
 --source include/start_slave.inc
 
 --source include/rpl_end.inc
