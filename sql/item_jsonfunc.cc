@@ -18,6 +18,7 @@
 #include "sql_priv.h"
 #include "sql_class.h"
 #include "item.h"
+#include "sql_parse.h"
 
 
 /*
@@ -4406,6 +4407,9 @@ int json_find_overlap_with_object(json_engine_t *js, json_engine_t *value,
 */
 int check_overlaps(json_engine_t *js, json_engine_t *value, bool compare_whole)
 {
+  if (check_stack_overrun(current_thd, STACK_MIN_SIZE, NULL))
+    return 0;
+
   switch (js->value_type)
   {
   case JSON_VALUE_OBJECT:
