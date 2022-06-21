@@ -2545,10 +2545,8 @@ row_rename_table_for_mysql(
 	const char*	old_name,	/*!< in: old table name */
 	const char*	new_name,	/*!< in: new table name */
 	trx_t*		trx,		/*!< in/out: transaction */
-	bool		use_fk,		/*!< in: whether to parse and enforce
+	rename_fk	fk)		/*!< in: how to handle
 					FOREIGN KEY constraints */
-	bool		cmd_alter)	/*!< in: don't rename foreign keys for
-					new tmp table */
 {
 	dict_table_t*	table			= NULL;
 	dberr_t		err			= DB_ERROR;
@@ -2632,9 +2630,9 @@ row_rename_table_for_mysql(
 
 		goto funct_exit;
 
-	} else if (use_fk && cmd_alter && !old_is_tmp && new_is_tmp) {
-		/* MySQL is doing an ALTER TABLE command and it renames the
-		original table to a temporary table name. We want to preserve
+	} else if (fk == RENAME_ALTER_COPY && !old_is_tmp && new_is_tmp) {
+		/* Non-native ALTER TABLE is renaming the
+		original table to a temporary name. We want to preserve
 		the original foreign key constraint definitions despite the
 		name change. An exception is those constraints for which
 		the ALTER TABLE contained DROP FOREIGN KEY <foreign key id>.*/
@@ -2674,10 +2672,11 @@ row_rename_table_for_mysql(
 
 	if (err != DB_SUCCESS) {
 		// Assume the caller guarantees destination name doesn't exist.
+		ut_ad(err != DB_DUPLICATE_KEY);
 		goto rollback_and_exit;
 	}
 
-	if (!cmd_alter || !new_is_tmp) {
+	if (fk == RENAME_IGNORE_FK || fk == RENAME_FK || !new_is_tmp) {
 		/* Rename all constraints. */
 		char	new_table_name[MAX_TABLE_NAME_LEN + 1];
 		char	old_table_utf8[MAX_TABLE_NAME_LEN + 1];
@@ -2851,7 +2850,7 @@ row_rename_table_for_mysql(
 		err = dict_load_foreigns(
 			new_name, nullptr, trx->id,
 			!old_is_tmp || trx->check_foreigns,
-			use_fk
+			fk == RENAME_FK || fk == RENAME_ALTER_COPY
 			? DICT_ERR_IGNORE_NONE
 			: DICT_ERR_IGNORE_FK_NOKEY,
 			fk_tables);
