@@ -25,6 +25,7 @@
 #include "sql_show.h"
 #include "sql_select.h"
 #include "create_tmp_table.h"
+#include "sql_parse.h"
 
 #define HA_ERR_JSON_TABLE (HA_ERR_LAST+1)
 
@@ -101,6 +102,8 @@ int get_disallowed_table_deps_for_list(MEM_ROOT *mem_root,
   NESTED_JOIN *nested_join;
   List_iterator<TABLE_LIST> li(*join_list);
 
+  if (check_stack_overrun(current_thd, STACK_MIN_SIZE, NULL))
+   return 1;
   while ((table= li++))
   {
     if ((nested_join= table->nested_join))
@@ -1304,6 +1307,9 @@ static void add_extra_deps(List<TABLE_LIST> *join_list, table_map deps)
 {
   TABLE_LIST *table;
   List_iterator<TABLE_LIST> li(*join_list);
+
+  if (check_stack_overrun(current_thd, STACK_MIN_SIZE, NULL))
+    return;
   while ((table= li++))
   {
     table->dep_tables |= deps;
@@ -1391,6 +1397,9 @@ table_map add_table_function_dependencies(List<TABLE_LIST> *join_list,
   TABLE_LIST *table;
   table_map res= 0;
   List_iterator<TABLE_LIST> li(*join_list);
+
+  if ((res= check_stack_overrun(current_thd, STACK_MIN_SIZE, NULL)))
+   return res;
 
   // Recursively compute extra dependencies
   while ((table= li++))
