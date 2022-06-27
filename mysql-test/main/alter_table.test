@@ -786,7 +786,7 @@ drop table t1;
 
 # it is necessary that the view protocol uses the same connection,
 # not util connection
---disable_view_protocol
+--disable_service_connection
 
 --disable_warnings
 drop table if exists t1, t2, t3;
@@ -831,7 +831,7 @@ insert into t1 values ();
 select * from t1;
 drop tables t1, t3;
 
---enable_view_protocol
+--enable_service_connection
 
 #
 # Bug#18775 - Temporary table from alter table visible to other threads
