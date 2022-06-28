@@ -550,9 +550,12 @@ page_copy_rec_list_end(
 	rec_t*		ret		= page_rec_get_next(
 		page_get_infimum_rec(new_page));
 	ulint		num_moved	= 0;
-	rtr_rec_move_t*	rec_move	= NULL;
-	mem_heap_t*	heap		= NULL;
 	ut_ad(page_align(rec) == page);
+
+	if (UNIV_UNLIKELY(!ret)) {
+		*err = DB_CORRUPTION;
+		return nullptr;
+	}
 
 #ifdef UNIV_ZIP_DEBUG
 	if (new_page_zip) {
@@ -579,15 +582,15 @@ page_copy_rec_list_end(
 	alignas(2) byte h[PAGE_N_DIRECTION + 2 - PAGE_LAST_INSERT];
 	memcpy_aligned<2>(h, PAGE_HEADER + PAGE_LAST_INSERT + new_page,
 			  sizeof h);
+	mem_heap_t* heap = nullptr;
+	rtr_rec_move_t* rec_move = nullptr;
 
 	if (index->is_spatial()) {
 		ulint	max_to_move = page_get_n_recs(
 			buf_block_get_frame(block));
 		heap = mem_heap_create(256);
-
-		rec_move = static_cast<rtr_rec_move_t*>(
+		rec_move= static_cast<rtr_rec_move_t*>(
 			mem_heap_alloc(heap, max_to_move * sizeof *rec_move));
-
 		/* For spatial index, we need to insert recs one by one
 		to keep recs ordered. */
 		*err = rtr_page_copy_rec_list_end_no_locks(new_block,
@@ -600,6 +603,10 @@ page_copy_rec_list_end(
 		*err = page_copy_rec_list_end_no_locks(new_block, block, rec,
 						       index, mtr);
 		if (UNIV_UNLIKELY(*err != DB_SUCCESS)) {
+err_exit:
+			if (UNIV_LIKELY_NULL(heap)) {
+				mem_heap_free(heap);
+			}
 			return nullptr;
 		}
 		if (was_empty) {
@@ -640,7 +647,11 @@ page_copy_rec_list_end(
 			have at least one predecessor (the predefined
 			infimum record, or a freshly copied record
 			that is smaller than "ret"). */
-			ut_a(ret_pos > 0);
+			if (UNIV_UNLIKELY(!ret_pos
+					  || ret_pos == ULINT_UNDEFINED)) {
+				*err = DB_CORRUPTION;
+				goto err_exit;
+			}
 
 			*err = page_zip_reorganize(new_block, index,
 						   page_zip_level, mtr);
@@ -653,14 +664,12 @@ page_copy_rec_list_end(
 				ut_ad(page_validate(new_page, index));
 				/* fall through */
 			default:
-				if (heap) {
-					mem_heap_free(heap);
-				}
-				return nullptr;
+				goto err_exit;
 			case DB_SUCCESS:
 				/* The page was reorganized:
 				Seek to ret_pos. */
 				ret = page_rec_get_nth(new_page, ret_pos);
+				ut_ad(ret);
 			}
 		}
 	}
@@ -668,13 +677,13 @@ page_copy_rec_list_end(
 	/* Update the lock table and possible hash index */
 
 	if (!index->has_locking()) {
-	} else if (rec_move && dict_index_is_spatial(index)) {
+	} else if (UNIV_LIKELY_NULL(rec_move)) {
 		lock_rtr_move_rec_list(new_block, block, rec_move, num_moved);
 	} else {
 		lock_move_rec_list_end(new_block, block, rec);
 	}
 
-	if (heap) {
+	if (UNIV_LIKELY_NULL(heap)) {
 		mem_heap_free(heap);
 	}
 
@@ -821,11 +830,17 @@ zip_reorganize:
 			the predefined infimum record, then it would
 			still be the infimum, and we would have
 			ret_pos == 0. */
+			if (UNIV_UNLIKELY(!ret_pos
+					  || ret_pos == ULINT_UNDEFINED)) {
+				*err = DB_CORRUPTION;
+				return nullptr;
+			}
 			*err = page_zip_reorganize(new_block, index,
 						   page_zip_level, mtr);
 			switch (*err) {
 			case DB_SUCCESS:
 				ret = page_rec_get_nth(new_page, ret_pos);
+				ut_ad(ret);
 				break;
 			case DB_FAIL:
 				if (UNIV_UNLIKELY
@@ -981,12 +996,15 @@ page_delete_rec_list_end(
       if (scrub)
         mtr->memset(block, page_offset(rec2), rec_offs_data_size(offsets), 0);
 
-      rec2 = page_rec_get_next(rec2);
+      rec2= page_rec_get_next(rec2);
     }
-    while (!page_rec_is_supremum(rec2));
+    while (rec2 && !page_rec_is_supremum(rec2));
 
     if (UNIV_LIKELY_NULL(heap))
       mem_heap_free(heap);
+
+    if (UNIV_UNLIKELY(!rec))
+      return DB_CORRUPTION;
   }
 
   ut_ad(size < srv_page_size);
@@ -1000,13 +1018,15 @@ page_delete_rec_list_end(
       while (!(n_owned= rec_get_n_owned_new(owner_rec)))
       {
         count++;
-	owner_rec= rec_get_next_ptr_const(owner_rec, TRUE);
+	if (!(owner_rec= rec_get_next_ptr_const(owner_rec, TRUE)))
+          return DB_CORRUPTION;
       }
     else
       while (!(n_owned= rec_get_n_owned_old(owner_rec)))
       {
         count++;
-	owner_rec= rec_get_next_ptr_const(owner_rec, FALSE);
+	if (!(owner_rec= rec_get_next_ptr_const(owner_rec, FALSE)))
+          return DB_CORRUPTION;
       }
 
     ut_ad(n_owned > count);
@@ -1153,7 +1173,8 @@ page_delete_rec_list_start(
 /************************************************************//**
 Returns the nth record of the record list.
 This is the inverse function of page_rec_get_n_recs_before().
-@return nth record */
+@return nth record
+@retval nullptr on corrupted page */
 const rec_t*
 page_rec_get_nth_const(
 /*===================*/
@@ -1172,7 +1193,6 @@ page_rec_get_nth_const(
 	ut_ad(nth < srv_page_size / (REC_N_NEW_EXTRA_BYTES + 1));
 
 	for (i = 0;; i++) {
-
 		slot = page_dir_get_nth_slot(page, i);
 		n_owned = page_dir_slot_get_n_owned(slot);
 
@@ -1183,87 +1203,154 @@ page_rec_get_nth_const(
 		}
 	}
 
-	ut_ad(i > 0);
-	slot = page_dir_get_nth_slot(page, i - 1);
-	rec = page_dir_slot_get_rec(slot);
+	if (UNIV_UNLIKELY(!i)) {
+		return nullptr;
+	}
+	rec = page_dir_slot_get_rec(slot + 2);
 
 	if (page_is_comp(page)) {
 		do {
 			rec = page_rec_get_next_low(rec, TRUE);
-			ut_ad(rec);
-		} while (nth--);
+		} while (rec && nth--);
 	} else {
 		do {
 			rec = page_rec_get_next_low(rec, FALSE);
-			ut_ad(rec);
-		} while (nth--);
+		} while (rec && nth--);
 	}
 
 	return(rec);
 }
 
-/***************************************************************//**
-Returns the number of records before the given record in chain.
-The number includes infimum and supremum records.
-@return number of records */
-ulint
-page_rec_get_n_recs_before(
-/*=======================*/
-	const rec_t*	rec)	/*!< in: the physical record */
+
+/************************************************************//**
+Gets the pointer to the previous record.
+@return pointer to previous record
+@retval nullptr on error */
+const rec_t*
+page_rec_get_prev_const(
+/*====================*/
+	const rec_t*	rec)	/*!< in: pointer to record, must not be page
+				infimum */
 {
-	const page_dir_slot_t*	slot;
-	const rec_t*		slot_rec;
-	const page_t*		page;
-	ulint			i;
-	lint			n	= 0;
+	const rec_t*		rec2;
+	const rec_t*		prev_rec = NULL;
 
 	ut_ad(page_rec_check(rec));
 
-	page = page_align(rec);
+	const page_t* const page = page_align(rec);
+
+	ut_ad(!page_rec_is_infimum(rec));
+
+	ulint slot_no = page_dir_find_owner_slot(rec);
+
+	if (UNIV_UNLIKELY(!slot_no || slot_no == ULINT_UNDEFINED)) {
+		return nullptr;
+	}
+
+	const page_dir_slot_t* slot = page_dir_get_nth_slot(page, slot_no - 1);
+
+	if (UNIV_UNLIKELY(!(rec2 = page_dir_slot_get_rec_validate(slot)))) {
+		return nullptr;
+	}
+
 	if (page_is_comp(page)) {
-		while (rec_get_n_owned_new(rec) == 0) {
-
-			rec = rec_get_next_ptr_const(rec, TRUE);
-			n--;
+		while (rec2 && rec != rec2) {
+			prev_rec = rec2;
+			ulint offs = rec_get_next_offs(rec2, TRUE);
+			if (offs < PAGE_NEW_INFIMUM
+			    || offs > page_header_get_field(page,
+							    PAGE_HEAP_TOP)) {
+				return nullptr;
+			}
+			rec2 = page + offs;
 		}
-
-		for (i = 0; ; i++) {
-			slot = page_dir_get_nth_slot(page, i);
-			slot_rec = page_dir_slot_get_rec(slot);
-
-			n += lint(rec_get_n_owned_new(slot_rec));
-
-			if (rec == slot_rec) {
-
+		switch (rec_get_status(prev_rec)) {
+		case REC_STATUS_INSTANT:
+		case REC_STATUS_ORDINARY:
+			if (!page_is_leaf(page)) {
+				return nullptr;
+			}
+			break;
+		case REC_STATUS_INFIMUM:
+			break;
+		case REC_STATUS_NODE_PTR:
+			if (!page_is_leaf(page)) {
 				break;
 			}
-		}
+			/* fall through */
+		default:
+			return nullptr;
+                }
 	} else {
-		while (rec_get_n_owned_old(rec) == 0) {
-
-			rec = rec_get_next_ptr_const(rec, FALSE);
-			n--;
-		}
-
-		for (i = 0; ; i++) {
-			slot = page_dir_get_nth_slot(page, i);
-			slot_rec = page_dir_slot_get_rec(slot);
-
-			n += lint(rec_get_n_owned_old(slot_rec));
-
-			if (rec == slot_rec) {
-
-				break;
+		while (rec2 && rec != rec2) {
+			prev_rec = rec2;
+			ulint offs = rec_get_next_offs(rec2, FALSE);
+			if (offs < PAGE_OLD_INFIMUM
+			    || offs > page_header_get_field(page,
+							    PAGE_HEAP_TOP)) {
+				return nullptr;
 			}
+			rec2 = page + offs;
 		}
 	}
 
-	n--;
+	return(prev_rec);
+}
 
-	ut_ad(n >= 0);
-	ut_ad((ulong) n < srv_page_size / (REC_N_NEW_EXTRA_BYTES + 1));
+/** Return the number of preceding records in an index page.
+@param rec index record
+@return number of preceding records, including the infimum pseudo-record
+@retval ULINT_UNDEFINED on corrupted page */
+ulint page_rec_get_n_recs_before(const rec_t *rec)
+{
+  const page_t *const page= page_align(rec);
+  const page_dir_slot_t *slot = page_dir_get_nth_slot(page, 0);
+  const page_dir_slot_t *const end_slot= slot - 2 * page_dir_get_n_slots(page);
 
-	return((ulint) n);
+  lint n= 0;
+
+  ut_ad(page_rec_check(rec));
+
+  if (page_is_comp(page))
+  {
+    for (; rec_get_n_owned_new(rec) == 0; n--)
+      if (UNIV_UNLIKELY(!(rec= rec_get_next_ptr_const(rec, TRUE))))
+        return ULINT_UNDEFINED;
+
+    do
+    {
+      const rec_t *slot_rec= page_dir_slot_get_rec_validate(slot);
+      if (UNIV_UNLIKELY(!slot_rec))
+        break;
+      n+= lint(rec_get_n_owned_new(slot_rec));
+
+      if (rec == slot_rec)
+        goto found;
+    }
+    while ((slot-= 2) > end_slot);
+  }
+  else
+  {
+    for (; rec_get_n_owned_old(rec) == 0; n--)
+      if (UNIV_UNLIKELY(!(rec= rec_get_next_ptr_const(rec, FALSE))))
+        return ULINT_UNDEFINED;
+
+    do
+    {
+      const rec_t *slot_rec= page_dir_slot_get_rec_validate(slot);
+      if (UNIV_UNLIKELY(!slot_rec))
+        break;
+      n+= lint(rec_get_n_owned_old(slot_rec));
+
+      if (rec == slot_rec)
+        goto found;
+    }
+    while ((slot-= 2) > end_slot);
+  }
+
+  return ULINT_UNDEFINED;
+found:
+  return --n < 0 ? ULINT_UNDEFINED : ulint(n);
 }
 
 /************************************************************//**
@@ -2409,37 +2496,35 @@ page_find_rec_with_heap_no(
 @param[in]	page	index tree leaf page
 @return the last record, not delete-marked
 @retval infimum record if all records are delete-marked */
-const rec_t*
-page_find_rec_max_not_deleted(
-	const page_t*	page)
+const rec_t *page_find_rec_max_not_deleted(const page_t *page)
 {
-	const rec_t*	rec = page_get_infimum_rec(page);
-	const rec_t*	prev_rec = NULL; // remove warning
+  ut_ad(page_is_leaf(page));
 
-	/* Because the page infimum is never delete-marked
-	and never the metadata pseudo-record (MIN_REC_FLAG)),
-	prev_rec will always be assigned to it first. */
-	ut_ad(!rec_get_info_bits(rec, page_rec_is_comp(rec)));
-	ut_ad(page_is_leaf(page));
-
-	if (page_is_comp(page)) {
-		do {
-			if (!(rec[-REC_NEW_INFO_BITS]
-			      & (REC_INFO_DELETED_FLAG
-				 | REC_INFO_MIN_REC_FLAG))) {
-				prev_rec = rec;
-			}
-			rec = page_rec_get_next_low(rec, true);
-		} while (rec != page + PAGE_NEW_SUPREMUM);
-	} else {
-		do {
-			if (!(rec[-REC_OLD_INFO_BITS]
-			      & (REC_INFO_DELETED_FLAG
-				 | REC_INFO_MIN_REC_FLAG))) {
-				prev_rec = rec;
-			}
-			rec = page_rec_get_next_low(rec, false);
-		} while (rec != page + PAGE_OLD_SUPREMUM);
-	}
-	return(prev_rec);
+  if (page_is_comp(page))
+  {
+    const rec_t *rec= page + PAGE_NEW_INFIMUM;
+    const rec_t *prev_rec= rec;
+    do
+    {
+      if (!(rec[-REC_NEW_INFO_BITS] &
+            (REC_INFO_DELETED_FLAG | REC_INFO_MIN_REC_FLAG)))
+        prev_rec= rec;
+      if (!(rec= page_rec_get_next_low(rec, true)))
+        return page + PAGE_NEW_INFIMUM;
+    } while (rec != page + PAGE_NEW_SUPREMUM);
+    return prev_rec;
+  }
+  else {
+    const rec_t *rec= page + PAGE_OLD_INFIMUM;
+    const rec_t *prev_rec= rec;
+    do
+    {
+      if (!(rec[-REC_OLD_INFO_BITS] &
+            (REC_INFO_DELETED_FLAG | REC_INFO_MIN_REC_FLAG)))
+        prev_rec= rec;
+      if (!(rec= page_rec_get_next_low(rec, false)))
+        return page + PAGE_OLD_INFIMUM;
+    } while (rec != page + PAGE_OLD_SUPREMUM);
+    return prev_rec;
+  }
 }

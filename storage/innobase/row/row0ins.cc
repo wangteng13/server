@@ -2349,11 +2349,13 @@ duplicate:
 		}
 	}
 
+	err = DB_SUCCESS;
+
 	if (cursor->up_match >= n_unique) {
 
 		rec = page_rec_get_next(btr_cur_get_rec(cursor));
 
-		if (!page_rec_is_supremum(rec)) {
+		if (rec && !page_rec_is_supremum(rec)) {
 			offsets = rec_get_offsets(rec, cursor->index, offsets,
 						  cursor->index->n_core_fields,
 						  ULINT_UNDEFINED, &heap);
@@ -2378,24 +2380,23 @@ duplicate:
 			}
 
 			switch (err) {
-			case DB_SUCCESS_LOCKED_REC:
-			case DB_SUCCESS:
-				break;
 			default:
-				goto func_exit;
-			}
-
-			if (row_ins_dupl_error_with_rec(
-				    rec, entry, cursor->index, offsets)) {
-				goto duplicate;
+				break;
+			case DB_SUCCESS_LOCKED_REC:
+				err = DB_SUCCESS;
+				/* fall through */
+			case DB_SUCCESS:
+				if (row_ins_dupl_error_with_rec(
+					    rec, entry, cursor->index,
+					    offsets)) {
+					goto duplicate;
+				}
 			}
 		}
 
 		/* This should never happen */
-		ut_error;
+		err = DB_CORRUPTION;
 	}
-
-	err = DB_SUCCESS;
 func_exit:
 	if (UNIV_LIKELY_NULL(heap)) {
 		mem_heap_free(heap);

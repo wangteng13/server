@@ -3205,17 +3205,21 @@ static dberr_t handle_instant_metadata(dict_table_t *table,
         return err;
     }
 
-    const auto *rec= page_rec_get_next(page_get_infimum_rec(page.get()));
+    const auto *rec= page_rec_get_next_const(page_get_infimum_rec(page.get()));
     const auto comp= dict_table_is_comp(index->table);
-    const auto info_bits= rec_get_info_bits(rec, comp);
 
-    if (page_rec_is_supremum(rec) || !(info_bits & REC_INFO_MIN_REC_FLAG))
+    if (!rec || page_rec_is_supremum(rec))
     {
+    corrupted_metadata:
       ib::error() << "Table " << index->table->name
                   << " is missing instant ALTER metadata";
       index->table->corrupted= true;
       return DB_CORRUPTION;
     }
+
+    const auto info_bits= rec_get_info_bits(rec, comp);
+    if (!(info_bits & REC_INFO_MIN_REC_FLAG))
+      goto corrupted_metadata;
 
     if ((info_bits & ~REC_INFO_DELETED_FLAG) != REC_INFO_MIN_REC_FLAG ||
         (comp && rec_get_status(rec) != REC_STATUS_INSTANT))

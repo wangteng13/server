@@ -405,21 +405,23 @@ update_mbr:
 		}
 
 		/* Insert the new rec. */
-		page_cur_search_with_match(block, index, node_ptr,
-					   PAGE_CUR_LE , &up_match, &low_match,
-					   btr_cur_get_page_cur(cursor), NULL);
+		if (page_cur_search_with_match(block, index, node_ptr,
+					       PAGE_CUR_LE,
+					       &up_match, &low_match,
+					       btr_cur_get_page_cur(cursor),
+					       NULL)) {
+			goto err_exit;
+		}
 
 		err = btr_cur_optimistic_insert(flags, cursor, &insert_offsets,
 						&heap, node_ptr, &insert_rec,
 						&dummy_big_rec, 0, NULL, mtr);
 
-		if (!ins_suc && err == DB_SUCCESS) {
-			ins_suc = true;
-		}
-
 		/* If optimistic insert fail, try reorganize the page
 		and insert again. */
-		if (err != DB_SUCCESS && ins_suc) {
+		if (err == DB_SUCCESS) {
+			ins_suc = true;
+		} else if (err == DB_FAIL && ins_suc) {
 			err = btr_page_reorganize(btr_cur_get_page_cur(cursor),
 						  index, mtr);
 			if (err == DB_SUCCESS) {
@@ -529,7 +531,7 @@ update_mbr:
 	      || (REC_INFO_MIN_REC_FLAG & rec_get_info_bits(
 			  page_rec_get_next(page_get_infimum_rec(page)),
 			  page_is_comp(page))));
-
+err_exit:
 	mem_heap_free(heap);
 }
 
@@ -560,7 +562,6 @@ rtr_adjust_upper_level(
 	page_cur_t*	page_cursor;
 	lock_prdt_t	prdt;
 	lock_prdt_t	new_prdt;
-	dberr_t		err;
 	big_rec_t*	dummy_big_rec;
 	rec_t*		rec;
 
@@ -608,18 +609,19 @@ rtr_adjust_upper_level(
 
 	buf_block_t*	father_block = btr_cur_get_block(&cursor);
 
-	page_cur_search_with_match(
-		father_block, index, node_ptr_upper,
-		PAGE_CUR_LE , &up_match, &low_match,
-		btr_cur_get_page_cur(&cursor), NULL);
-
-	err = btr_cur_optimistic_insert(
-		flags
-		| BTR_NO_LOCKING_FLAG
-		| BTR_KEEP_SYS_FLAG
-		| BTR_NO_UNDO_LOG_FLAG,
-		&cursor, &offsets, &heap,
-		node_ptr_upper, &rec, &dummy_big_rec, 0, NULL, mtr);
+	dberr_t err = page_cur_search_with_match(father_block, index,
+						 node_ptr_upper, PAGE_CUR_LE,
+						 &up_match, &low_match,
+						 btr_cur_get_page_cur(&cursor),
+						 NULL)
+		? DB_CORRUPTION
+		: btr_cur_optimistic_insert(flags
+					    | BTR_NO_LOCKING_FLAG
+					    | BTR_KEEP_SYS_FLAG
+					    | BTR_NO_UNDO_LOG_FLAG,
+					    &cursor, &offsets, &heap,
+					    node_ptr_upper, &rec,
+					    &dummy_big_rec, 0, NULL, mtr);
 
 	if (err == DB_FAIL) {
 		cursor.rtr_info = sea_cur->rtr_info;
@@ -638,22 +640,26 @@ rtr_adjust_upper_level(
 						 node_ptr_upper, &rec,
 						 &dummy_big_rec, 0, NULL, mtr);
 		cursor.rtr_info = NULL;
-		ut_a(err == DB_SUCCESS);
-
 		mem_heap_free(new_heap);
 	}
 
-	prdt.data = static_cast<void*>(mbr);
-	prdt.op = 0;
-	new_prdt.data = static_cast<void*>(new_mbr);
-	new_prdt.op = 0;
+	if (err == DB_SUCCESS) {
+		prdt.data = static_cast<void*>(mbr);
+		prdt.op = 0;
+		new_prdt.data = static_cast<void*>(new_mbr);
+		new_prdt.op = 0;
 
-	lock_prdt_update_parent(block, new_block, &prdt, &new_prdt,
-				page_cursor->block->page.id());
+		lock_prdt_update_parent(block, new_block, &prdt, &new_prdt,
+					page_cursor->block->page.id());
+	}
 
 	mem_heap_free(heap);
 
 	ut_ad(block->zip_size() == index->table->space->zip_size());
+
+	if (err != DB_SUCCESS) {
+		return err;
+	}
 
 	const uint32_t next_page_no = btr_page_get_next(block->page.frame);
 
@@ -1098,9 +1104,14 @@ func_start:
 
 	/* Reposition the cursor for insert and try insertion */
 	page_cursor = btr_cur_get_page_cur(cursor);
+	ulint up_match = 0, low_match = 0;
 
-	page_cur_search(insert_block, cursor->index, tuple,
-			PAGE_CUR_LE, page_cursor);
+	if (page_cur_search_with_match(insert_block, cursor->index, tuple,
+				       PAGE_CUR_LE, &up_match, &low_match,
+				       page_cursor, nullptr)) {
+		*err = DB_CORRUPTION;
+		return nullptr;
+	}
 
 	/* It's possible that the new record is too big to be inserted into
 	the page, and it'll need the second round split in this case.

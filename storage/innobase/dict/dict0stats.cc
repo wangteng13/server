@@ -1877,6 +1877,36 @@ func_exit:
 	mem_heap_free(heap);
 }
 
+
+/************************************************************//**
+Gets the pointer to the next non delete-marked record on the page.
+If all subsequent records are delete-marked, then this function
+will return the supremum record.
+@return pointer to next non delete-marked record or pointer to supremum */
+static
+const rec_t*
+page_rec_get_next_non_del_marked(
+/*=============================*/
+	const rec_t*	rec)	/*!< in: pointer to record */
+{
+  const page_t *const page= page_align(rec);
+
+  if (page_is_comp(page))
+  {
+    for (rec= page_rec_get_next_low(rec, TRUE);
+         rec && rec_get_deleted_flag(rec, TRUE);
+         rec= page_rec_get_next_low(rec, TRUE));
+    return rec ? rec : page + PAGE_NEW_SUPREMUM;
+  }
+  else
+  {
+    for (rec= page_rec_get_next_low(rec, FALSE);
+         rec && rec_get_deleted_flag(rec, FALSE);
+         rec= page_rec_get_next_low(rec, FALSE));
+    return rec ? rec : page + PAGE_OLD_SUPREMUM;
+  }
+}
+
 /** Scan a page, reading records from left to right and counting the number
 of distinct records (looking only at the first n_prefix
 columns) and the number of external pages pointed by records from this page.

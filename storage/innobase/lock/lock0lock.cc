@@ -2378,10 +2378,12 @@ lock_move_reorganize_page(
 
 	lock_trx->mutex_unlock();
 
-        if (new_heap_no == PAGE_HEAP_NO_SUPREMUM)
+        if (!rec1 || !rec2)
         {
-           ut_ad(old_heap_no == PAGE_HEAP_NO_SUPREMUM);
-           break;
+          ut_ad(!rec1 == !rec2);
+          ut_ad(new_heap_no == PAGE_HEAP_NO_SUPREMUM);
+          ut_ad(old_heap_no == PAGE_HEAP_NO_SUPREMUM);
+          break;
         }
       }
 
@@ -2450,6 +2452,12 @@ lock_move_rec_list_end(
                                     FALSE);
       }
 
+      if (UNIV_UNLIKELY(!rec1 || !rec2))
+      {
+        ut_ad("corrupted page" == 0);
+        return;
+      }
+
       /* Copy lock requests on user records to new page and
       reset the lock bits on the old */
       for (;;)
@@ -2463,26 +2471,35 @@ lock_move_rec_list_end(
         if (comp)
         {
           rec1_heap_no= rec_get_heap_no_new(rec1);
-          if (rec1_heap_no == PAGE_HEAP_NO_SUPREMUM)
+          if (!(rec1= page_rec_get_next_low(rec1, TRUE)))
+          {
+            ut_ad(rec1_heap_no == PAGE_HEAP_NO_SUPREMUM);
             break;
-
+          }
           rec2_heap_no= rec_get_heap_no_new(rec2);
-          rec1= page_rec_get_next_low(rec1, TRUE);
           rec2= page_rec_get_next_low(rec2, TRUE);
         }
         else
         {
+          ut_d(const rec_t *old1= rec1);
           rec1_heap_no= rec_get_heap_no_old(rec1);
-
-          if (rec1_heap_no == PAGE_HEAP_NO_SUPREMUM)
+          if (!(rec1= page_rec_get_next_low(rec1, FALSE)))
+          {
+            ut_ad(rec1_heap_no == PAGE_HEAP_NO_SUPREMUM);
             break;
+          }
+
+          ut_ad(rec_get_data_size_old(old1) == rec_get_data_size_old(rec2));
+          ut_ad(!memcmp(old1, rec2, rec_get_data_size_old(old1)));
+
           rec2_heap_no= rec_get_heap_no_old(rec2);
-
-          ut_ad(rec_get_data_size_old(rec1) == rec_get_data_size_old(rec2));
-          ut_ad(!memcmp(rec1, rec2, rec_get_data_size_old(rec1)));
-
-          rec1= page_rec_get_next_low(rec1, FALSE);
           rec2= page_rec_get_next_low(rec2, FALSE);
+        }
+
+        if (UNIV_UNLIKELY(!rec2))
+        {
+          ut_ad("corrupted page" == 0);
+          return;
         }
 
         trx_t *lock_trx= lock->trx;
@@ -2577,6 +2594,12 @@ lock_move_rec_list_start(
 
       while (rec1 != rec)
       {
+        if (UNIV_UNLIKELY(!rec1 || !rec2))
+        {
+          ut_ad("corrupted page" == 0);
+          return;
+        }
+
         ut_ad(page_rec_is_metadata(rec1) == page_rec_is_metadata(rec2));
         ut_d(const rec_t* const prev= rec1);
 
@@ -3031,12 +3054,18 @@ lock_update_insert(
 
 	if (page_rec_is_comp(rec)) {
 		receiver_heap_no = rec_get_heap_no_new(rec);
-		donator_heap_no = rec_get_heap_no_new(
-			page_rec_get_next_low(rec, TRUE));
+		rec = page_rec_get_next_low(rec, TRUE);
+		if (UNIV_UNLIKELY(!rec)) {
+			return;
+		}
+		donator_heap_no = rec_get_heap_no_new(rec);
 	} else {
 		receiver_heap_no = rec_get_heap_no_old(rec);
-		donator_heap_no = rec_get_heap_no_old(
-			page_rec_get_next_low(rec, FALSE));
+		rec = page_rec_get_next_low(rec, FALSE);
+		if (UNIV_UNLIKELY(!rec)) {
+			return;
+		}
+		donator_heap_no = rec_get_heap_no_old(rec);
 	}
 
 	lock_rec_inherit_to_gap_if_gap_lock(

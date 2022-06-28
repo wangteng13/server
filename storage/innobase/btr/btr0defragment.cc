@@ -356,8 +356,9 @@ btr_defragment_merge_pages(
 	target_n_recs = n_recs_to_move;
 	dberr_t err;
 	while (n_recs_to_move > 0) {
-		rec = page_rec_get_nth(from_page,
-					n_recs_to_move + 1);
+		if (!(rec = page_rec_get_nth(from_page, n_recs_to_move + 1))) {
+			return nullptr;
+		}
 		orig_pred = page_copy_rec_list_start(
 			to_block, from_block, rec, index, mtr, &err);
 		if (orig_pred)

@@ -169,20 +169,20 @@ page_cur_insert_rec_low(
 
 /***********************************************************//**
 Inserts a record next to page cursor on a compressed and uncompressed
-page. Returns pointer to inserted record if succeed, i.e.,
-enough space available, NULL otherwise.
-The cursor stays at the same position.
+page.
 
 IMPORTANT: The caller will have to update IBUF_BITMAP_FREE
 if this is a compressed leaf page in a secondary index.
 This has to be done either within the same mini-transaction,
 or by invoking ibuf_reset_free_bits() before mtr_commit().
 
-@return pointer to record if succeed, NULL otherwise */
+@return pointer to inserted record
+@return nullptr on failure */
 rec_t*
 page_cur_insert_rec_zip(
 /*====================*/
-	page_cur_t*	cursor,	/*!< in/out: page cursor */
+	page_cur_t*	cursor,	/*!< in/out: page cursor,
+				logical position unchanged  */
 	dict_index_t*	index,	/*!< in: record descriptor */
 	const rec_t*	rec,	/*!< in: pointer to a physical record */
 	rec_offs*	offsets,/*!< in/out: rec_get_offsets(rec, index) */
@@ -251,39 +251,10 @@ page_cur_delete_rec() for a ROW_FORMAT=COMPACT or DYNAMIC page.
 bool page_apply_delete_dynamic(const buf_block_t &block, ulint prev,
                                size_t hdr_size, size_t data_size);
 
-/** Search the right position for a page cursor.
-@param[in] block buffer block
-@param[in] index index tree
-@param[in] tuple data tuple
-@param[in] mode PAGE_CUR_L, PAGE_CUR_LE, PAGE_CUR_G, or PAGE_CUR_GE
-@param[out] cursor page cursor
-@return number of matched fields on the left */
-UNIV_INLINE
-ulint
-page_cur_search(
-	const buf_block_t*	block,
-	const dict_index_t*	index,
-	const dtuple_t*		tuple,
-	page_cur_mode_t		mode,
-	page_cur_t*		cursor);
-
-/** Search the right position for a page cursor.
-@param[in] block buffer block
-@param[in] index index tree
-@param[in] tuple data tuple
-@param[out] cursor page cursor
-@return number of matched fields on the left */
-UNIV_INLINE
-ulint
-page_cur_search(
-	const buf_block_t*	block,
-	const dict_index_t*	index,
-	const dtuple_t*		tuple,
-	page_cur_t*		cursor);
-
+MY_ATTRIBUTE((warn_unused_result))
 /****************************************************************//**
 Searches the right position for a page cursor. */
-void
+bool
 page_cur_search_with_match(
 /*=======================*/
 	const buf_block_t*	block,	/*!< in: buffer block */
@@ -301,6 +272,7 @@ page_cur_search_with_match(
 	page_cur_t*		cursor,	/*!< out: page cursor */
 	rtr_info_t*		rtr_info);/*!< in/out: rtree search stack */
 #ifdef BTR_CUR_HASH_ADAPT
+MY_ATTRIBUTE((warn_unused_result))
 /** Search the right position for a page cursor.
 @param[in]	block			buffer block
 @param[in]	index			index tree
@@ -315,7 +287,7 @@ lower limit record
 @param[in,out]	ilow_matched_bytes	already matched bytes in the
 first partially matched field in the lower limit record
 @param[out]	cursor			page cursor */
-void
+bool
 page_cur_search_with_match_bytes(
 	const buf_block_t*	block,
 	const dict_index_t*	index,

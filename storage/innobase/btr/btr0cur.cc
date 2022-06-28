@@ -895,6 +895,21 @@ btr_cur_latch_for_root_leaf(
 	return(RW_NO_LATCH); /* avoid compiler warnings */
 }
 
+/** @return whether the distance between two records is at most the
+specified value */
+static bool
+page_rec_distance_is_at_most(const rec_t *left, const rec_t *right, ulint val)
+{
+  do
+  {
+    if (left == right)
+      return true;
+    left= page_rec_get_next_const(left);
+  }
+  while (left && val--);
+  return false;
+}
+
 /** Detects whether the modifying record might need a modifying tree structure.
 @param[in]	index		index
 @param[in]	page		page
@@ -1929,22 +1944,28 @@ retry_page_get:
 #ifdef BTR_CUR_HASH_ADAPT
 	} else if (height == 0 && btr_search_enabled
 		   && !(tuple->info_bits & REC_INFO_MIN_REC_FLAG)
-		   && !dict_index_is_spatial(index)) {
+		   && index->is_btree()) {
 		/* The adaptive hash index is only used when searching
 		for leaf pages (height==0), but not in r-trees.
 		We only need the byte prefix comparison for the purpose
 		of updating the adaptive hash index. */
-		page_cur_search_with_match_bytes(
+		if (page_cur_search_with_match_bytes(
 			block, index, tuple, page_mode, &up_match, &up_bytes,
-			&low_match, &low_bytes, page_cursor);
+			&low_match, &low_bytes, page_cursor)) {
+			err = DB_CORRUPTION;
+			goto func_exit;
+		}
 #endif /* BTR_CUR_HASH_ADAPT */
 	} else {
 		/* Search for complete index fields. */
 		up_bytes = low_bytes = 0;
-		page_cur_search_with_match(
+		if (page_cur_search_with_match(
 			block, index, tuple, page_mode, &up_match,
 			&low_match, page_cursor,
-			need_path ? cursor->rtr_info : NULL);
+			need_path ? cursor->rtr_info : nullptr)) {
+			err = DB_CORRUPTION;
+			goto func_exit;
+		}
 	}
 
 	if (estimate) {
@@ -2260,11 +2281,14 @@ need_opposite_intention:
 					? cursor->rtr_info : NULL;
 
 				for (ulint i = 0; i < n_blocks; i++) {
-					page_cur_search_with_match(
+					if (page_cur_search_with_match(
 						tree_blocks[i], index, tuple,
 						page_mode, &up_match,
 						&low_match, page_cursor,
-						rtr_info);
+						rtr_info)) {
+						err = DB_CORRUPTION;
+						goto func_exit;
+					}
 				}
 
 				goto search_loop;

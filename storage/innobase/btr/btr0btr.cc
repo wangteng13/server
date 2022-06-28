@@ -1252,15 +1252,18 @@ static dberr_t btr_page_reorganize_low(page_cur_t *cursor, dict_index_t *index,
   ut_ad(index->is_dummy || block->page.id().page_no() != index->page ||
         !page_has_siblings(block->page.frame));
 
+  /* Save the cursor position. */
+  const ulint pos= page_rec_get_n_recs_before(cursor->rec);
+
+  if (UNIV_UNLIKELY(pos == ULINT_UNDEFINED))
+    return DB_CORRUPTION;
+
+  btr_search_drop_page_hash_index(block);
+
   buf_block_t *old= buf_block_alloc();
   /* Copy the old page to temporary space */
   memcpy_aligned<UNIV_PAGE_SIZE_MIN>(old->page.frame, block->page.frame,
                                      srv_page_size);
-
-  btr_search_drop_page_hash_index(block);
-
-  /* Save the cursor position. */
-  const ulint pos= page_rec_get_n_recs_before(cursor->rec);
 
   page_create(block, mtr, index->table->not_redundant());
   if (index->is_spatial())
@@ -1315,10 +1318,10 @@ static dberr_t btr_page_reorganize_low(page_cur_t *cursor, dict_index_t *index,
   }
 
   /* Restore the cursor position. */
-  if (pos)
-    cursor->rec = page_rec_get_nth(block->page.frame, pos);
-  else
+  if (!pos)
     ut_ad(cursor->rec == page_get_infimum_rec(block->page.frame));
+  else if (!(cursor->rec= page_rec_get_nth(block->page.frame, pos)))
+    return DB_CORRUPTION;
 
   mtr->set_log_mode(log_mode);
 
@@ -1543,13 +1546,16 @@ btr_page_reorganize(
     return btr_page_reorganize_low(cursor, index, mtr);
 
   ulint pos= page_rec_get_n_recs_before(cursor->rec);
+  if (UNIV_UNLIKELY(pos == ULINT_UNDEFINED))
+    return DB_CORRUPTION;
+
   dberr_t err= page_zip_reorganize(cursor->block, index, page_zip_level, mtr,
                                    true);
   if (err == DB_FAIL);
-  else if (pos)
-    cursor->rec= page_rec_get_nth(cursor->block->page.frame, pos);
-  else
+  else if (!pos)
     ut_ad(cursor->rec == page_get_infimum_rec(cursor->block->page.frame));
+  else if (!(cursor->rec= page_rec_get_nth(cursor->block->page.frame, pos)))
+    err= DB_CORRUPTION;
 
   return err;
 }
@@ -1961,9 +1967,20 @@ btr_root_raise_and_insert(
 		ibuf_reset_free_bits(new_block);
 	}
 
-	if (tuple != NULL) {
+	if (tuple) {
+		ut_ad(dtuple_check_typed(tuple));
 		/* Reposition the cursor to the child node */
-		page_cur_search(new_block, index, tuple, page_cursor);
+		ulint low_match = 0, up_match = 0;
+
+		if (page_cur_search_with_match(new_block, index, tuple,
+					       PAGE_CUR_LE,
+					       &up_match, &low_match,
+					       page_cursor, nullptr)) {
+			if (err) {
+				*err = DB_CORRUPTION;
+			}
+			return nullptr;
+		}
 	} else {
 		/* Set cursor to first record on child node */
 		page_cur_set_before_first(new_block, page_cursor);
@@ -2554,6 +2571,7 @@ btr_insert_into_right_sibling(
 					 MTR_MEMO_X_LOCK | MTR_MEMO_SX_LOCK));
 	ut_ad(mtr->memo_contains_flagged(block, MTR_MEMO_PAGE_X_FIX));
 	ut_ad(heap);
+	ut_ad(dtuple_check_typed(tuple));
 
 	if (next_page_no == FIL_NULL || !page_rec_is_supremum(
 			page_rec_get_next(btr_cur_get_rec(cursor)))) {
@@ -2581,9 +2599,13 @@ btr_insert_into_right_sibling(
 		return nullptr;
 	}
 
-	page_cur_search(
-		next_block, cursor->index, tuple, PAGE_CUR_LE,
-		&next_page_cursor);
+	ulint up_match = 0, low_match = 0;
+
+	if (page_cur_search_with_match(next_block, cursor->index, tuple,
+				       PAGE_CUR_LE, &up_match, &low_match,
+				       &next_page_cursor, nullptr)) {
+		return nullptr;
+	}
 
 	max_size = page_get_max_insert_size_after_reorganize(next_page, 1);
 
@@ -2788,6 +2810,7 @@ btr_page_split_and_insert(
 	ulint		n_uniq;
 
 	ut_ad(*err == DB_SUCCESS);
+	ut_ad(dtuple_check_typed(tuple));
 
 	if (cursor->index->is_spatial()) {
 		/* Split rtree page and update parent */
@@ -3086,7 +3109,14 @@ insert_empty:
 	/* 7. Reposition the cursor for insert and try insertion */
 	page_cursor = btr_cur_get_page_cur(cursor);
 
-	page_cur_search(insert_block, cursor->index, tuple, page_cursor);
+	ulint up_match = 0, low_match = 0;
+
+	if (page_cur_search_with_match(insert_block, cursor->index, tuple,
+				       PAGE_CUR_LE, &up_match, &low_match,
+				       page_cursor, nullptr)) {
+		*err = DB_CORRUPTION;
+		return nullptr;
+	}
 
 	rec = page_cur_tuple_insert(page_cursor, tuple, cursor->index,
 				    offsets, heap, n_ext, mtr);
@@ -3440,8 +3470,8 @@ btr_compress(
 	mtr_t*		mtr)	/*!< in/out: mini-transaction */
 {
 	dict_index_t*	index;
-	buf_block_t*	merge_block;
-	page_t*		merge_page = NULL;
+	buf_block_t*	merge_block = nullptr;
+	page_t*		merge_page = nullptr;
 	page_zip_des_t*	merge_page_zip;
 	ibool		is_left;
 	buf_block_t*	block;
@@ -3499,7 +3529,10 @@ btr_compress(
 
 	if (adjust) {
 		nth_rec = page_rec_get_n_recs_before(btr_cur_get_rec(cursor));
-		ut_ad(nth_rec > 0);
+		if (UNIV_UNLIKELY(!nth_rec || nth_rec == ULINT_UNDEFINED)) {
+			err = DB_CORRUPTION;
+			goto err_exit;
+		}
 	}
 
 	if (left_page_no == FIL_NULL && right_page_no == FIL_NULL) {
@@ -3648,7 +3681,12 @@ cannot_merge:
 		}
 
 		if (adjust) {
-			nth_rec += page_rec_get_n_recs_before(orig_pred);
+			ulint n = page_rec_get_n_recs_before(orig_pred);
+			if (UNIV_UNLIKELY(!n || n == ULINT_UNDEFINED)) {
+				err = DB_CORRUPTION;
+				goto err_exit;
+			}
+			nth_rec += n;
 		}
 	} else {
 		rec_t*		orig_succ;
@@ -3866,16 +3904,20 @@ cannot_merge:
 		ut_ad(leftmost_child
 		      || btr_check_node_ptr(index, merge_block, mtr));
 func_exit:
-		MONITOR_INC(MONITOR_INDEX_MERGE_SUCCESSFUL);
-
 		if (adjust) {
 			ut_ad(nth_rec > 0);
-			btr_cur_position(
-				index,
-				page_rec_get_nth(merge_block->page.frame,
-                                                 nth_rec),
-                                merge_block, cursor);
-                }
+			if (rec_t* nth
+			    = page_rec_get_nth(merge_block->page.frame,
+					       nth_rec)) {
+				btr_cur_position(index, nth,
+						 merge_block, cursor);
+			} else {
+				err = DB_CORRUPTION;
+				goto err_exit;
+			}
+		}
+
+		MONITOR_INC(MONITOR_INDEX_MERGE_SUCCESSFUL);
         } else {
 err_exit:
 		/* We play it safe and reset the free bits. */

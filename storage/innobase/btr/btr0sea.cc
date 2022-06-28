@@ -788,8 +788,20 @@ btr_search_check_guess(
 
 	rec = btr_cur_get_rec(cursor);
 
-	ut_ad(page_rec_is_user_rec(rec));
-	ut_ad(page_rec_is_leaf(rec));
+	if (UNIV_UNLIKELY(!page_rec_is_user_rec(rec)
+			  || !page_rec_is_leaf(rec))) {
+		ut_ad("corrupted index" == 0);
+		return false;
+	} else if (cursor->index->table->not_redundant()) {
+		switch (rec_get_status(rec)) {
+		case REC_STATUS_INSTANT:
+		case REC_STATUS_ORDINARY:
+			break;
+		default:
+			ut_ad("corrupted index" == 0);
+			return false;
+		}
+	}
 
 	match = 0;
 
@@ -847,6 +859,17 @@ btr_search_check_guess(
 			goto exit_func;
 		}
 
+		if (cursor->index->table->not_redundant()) {
+			switch (rec_get_status(prev_rec)) {
+			case REC_STATUS_INSTANT:
+			case REC_STATUS_ORDINARY:
+				break;
+			default:
+				ut_ad("corrupted index" == 0);
+				goto exit_func;
+			}
+		}
+
 		offsets = rec_get_offsets(prev_rec, cursor->index, offsets,
 					  cursor->index->n_core_fields,
 					  n_unique, &heap);
@@ -865,10 +888,21 @@ btr_search_check_guess(
 		if (page_rec_is_supremum(next_rec)) {
 			if (!page_has_next(page_align(next_rec))) {
 				cursor->up_match = 0;
-				success = TRUE;
+				success = true;
 			}
 
 			goto exit_func;
+		}
+
+		if (cursor->index->table->not_redundant()) {
+			switch (rec_get_status(next_rec)) {
+			case REC_STATUS_INSTANT:
+			case REC_STATUS_ORDINARY:
+				break;
+			default:
+				ut_ad("corrupted index" == 0);
+				goto exit_func;
+			}
 		}
 
 		offsets = rec_get_offsets(next_rec, cursor->index, offsets,
@@ -1245,14 +1279,7 @@ void btr_search_drop_page_hash_index(buf_block_t* block)
 {
 	ulint			n_fields;
 	ulint			n_bytes;
-	const page_t*		page;
 	const rec_t*		rec;
-	ulint			fold;
-	ulint			prev_fold;
-	ulint			n_cached;
-	ulint			n_recs;
-	ulint*			folds;
-	ulint			i;
 	mem_heap_t*		heap;
 	rec_offs*		offsets;
 
@@ -1323,33 +1350,44 @@ retry:
 
 	ut_a(n_fields > 0 || n_bytes > 0);
 
-	page = block->page.frame;
-	n_recs = page_get_n_recs(page);
+	const page_t* const page = block->page.frame;
+	ulint n_recs = page_get_n_recs(page);
+	if (!n_recs) {
+		ut_ad("corrupted adaptive hash index" == 0);
+		return;
+	}
 
 	/* Calculate and cache fold values into an array for fast deletion
 	from the hash index */
 
-	folds = (ulint*) ut_malloc_nokey(n_recs * sizeof(ulint));
-
-	n_cached = 0;
-
 	rec = page_get_infimum_rec(page);
 	rec = page_rec_get_next_low(rec, page_is_comp(page));
-	if (rec_is_metadata(rec, *index)) {
+	if (rec && rec_is_metadata(rec, *index)) {
 		rec = page_rec_get_next_low(rec, page_is_comp(page));
+		if (!--n_recs) {
+			ut_ad("corrupted adaptive hash index" == 0);
+			return;
+		}
 	}
 
-	prev_fold = 0;
+	ulint* folds = (ulint*) ut_malloc_nokey(n_recs * sizeof(ulint));
+	ulint n_cached = 0;
+	ulint prev_fold = 0;
 
 	heap = NULL;
 	offsets = NULL;
 
-	while (!page_rec_is_supremum(rec)) {
+	while (rec) {
+		if (n_cached >= n_recs) {
+			ut_ad(page_rec_is_supremum(rec));
+			break;
+		}
 		offsets = rec_get_offsets(
 			rec, index, offsets, index->n_core_fields,
 			btr_search_get_n_fields(n_fields, n_bytes),
 			&heap);
-		fold = rec_fold(rec, offsets, n_fields, n_bytes, index_id);
+		const ulint fold = rec_fold(rec, offsets, n_fields, n_bytes,
+					    index_id);
 
 		if (fold == prev_fold && prev_fold != 0) {
 
@@ -1358,11 +1396,13 @@ retry:
 
 		/* Remove all hash nodes pointing to this page from the
 		hash chain */
+		folds[n_cached++] = fold;
 
-		folds[n_cached] = fold;
-		n_cached++;
 next_rec:
 		rec = page_rec_get_next_low(rec, page_rec_is_comp(rec));
+		if (!rec || page_rec_is_supremum(rec)) {
+			break;
+		}
 		prev_fold = fold;
 	}
 
@@ -1394,7 +1434,7 @@ next_rec:
 		goto retry;
 	}
 
-	for (i = 0; i < n_cached; i++) {
+	for (ulint i = 0; i < n_cached; i++) {
 		ha_remove_all_nodes_to_page(&part->table, part->heap,
 					    folds[i], page);
 	}

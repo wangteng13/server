@@ -3697,7 +3697,6 @@ ibuf_insert_to_index_page(
 	mtr_t*		mtr)	/*!< in: mtr */
 {
 	page_cur_t	page_cur;
-	ulint		low_match;
 	page_t*		page		= buf_block_get_frame(block);
 	rec_t*		rec;
 	rec_offs*	offsets;
@@ -3726,7 +3725,7 @@ ibuf_insert_to_index_page(
 
 	rec = page_rec_get_next(page_get_infimum_rec(page));
 
-	if (page_rec_is_supremum(rec)) {
+	if (!rec || page_rec_is_supremum(rec)) {
 		return DB_CORRUPTION;
 	}
 
@@ -3734,8 +3733,15 @@ ibuf_insert_to_index_page(
 		return DB_CORRUPTION;
 	}
 
+	ulint up_match = 0, low_match = 0;
+
+	if (page_cur_search_with_match(block, index, entry, PAGE_CUR_LE,
+				       &up_match, &low_match, &page_cur,
+				       nullptr)) {
+		return DB_CORRUPTION;
+	}
+
 	dberr_t err = DB_SUCCESS;
-	low_match = page_cur_search(block, index, entry, &page_cur);
 
 	heap = mem_heap_create(
 		sizeof(upd_t)
@@ -3847,14 +3853,15 @@ ibuf_set_del_mark(
 	mtr_t*			mtr)	/*!< in: mtr */
 {
 	page_cur_t	page_cur;
-	ulint		low_match;
+	ulint		up_match = 0, low_match = 0;
 
 	ut_ad(ibuf_inside(mtr));
 	ut_ad(dtuple_check_typed(entry));
 
-	low_match = page_cur_search(block, index, entry, &page_cur);
-
-	if (low_match == dtuple_get_n_fields(entry)) {
+	if (!page_cur_search_with_match(block, index, entry, PAGE_CUR_LE,
+					&up_match, &low_match, &page_cur,
+					nullptr)
+	    && low_match == dtuple_get_n_fields(entry)) {
 		rec_t* rec = page_cur_get_rec(&page_cur);
 
 		/* Delete mark the old index record. According to a
@@ -3903,16 +3910,17 @@ ibuf_delete(
 				before latching any further pages */
 {
 	page_cur_t	page_cur;
-	ulint		low_match;
+	ulint		up_match = 0, low_match = 0;
 
 	ut_ad(ibuf_inside(mtr));
 	ut_ad(dtuple_check_typed(entry));
 	ut_ad(!index->is_spatial());
 	ut_ad(!index->is_clust());
 
-	low_match = page_cur_search(block, index, entry, &page_cur);
-
-	if (low_match == dtuple_get_n_fields(entry)) {
+	if (!page_cur_search_with_match(block, index, entry, PAGE_CUR_LE,
+					&up_match, &low_match, &page_cur,
+					nullptr)
+	    && low_match == dtuple_get_n_fields(entry)) {
 		page_zip_des_t*	page_zip= buf_block_get_page_zip(block);
 		page_t*		page	= buf_block_get_frame(block);
 		rec_t*		rec	= page_cur_get_rec(&page_cur);
@@ -3976,8 +3984,6 @@ ibuf_delete(
 		if (UNIV_LIKELY_NULL(heap)) {
 			mem_heap_free(heap);
 		}
-	} else {
-		/* The record must have been purged already. */
 	}
 }
 
@@ -4016,9 +4022,6 @@ ibuf_restore_pos(
 		rec_print_old(stderr, btr_pcur_get_rec(pcur));
 		rec_print_old(stderr, pcur->old_rec);
 		dtuple_print(stderr, search_tuple);
-
-		rec_print_old(stderr,
-			      page_rec_get_next(btr_pcur_get_rec(pcur)));
 	}
 
 	ibuf_btr_pcur_commit_specify_mtr(pcur, mtr);

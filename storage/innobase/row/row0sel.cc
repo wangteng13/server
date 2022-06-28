@@ -1804,7 +1804,11 @@ rec_loop:
 		search result set, resulting in the phantom problem. */
 
 		if (!node->read_view) {
-			rec_t*	next_rec = page_rec_get_next(rec);
+			const rec_t* next_rec = page_rec_get_next_const(rec);
+			if (UNIV_UNLIKELY(!next_rec)) {
+				err = DB_CORRUPTION;
+				goto lock_wait_or_error;
+			}
 			unsigned lock_type;
 
 			offsets = rec_get_offsets(next_rec, index, offsets,
@@ -3425,11 +3429,13 @@ Row_sel_get_clust_rec_for_mysql::operator()(
 				rec, sec_index, true,
 				sec_index->n_fields, heap);
 			page_cur_t     page_cursor;
-
-		        ulint		low_match = page_cur_search(
-						block, sec_index, tuple,
-						PAGE_CUR_LE, &page_cursor);
-
+			ulint up_match = 0, low_match = 0;
+			ut_ad(!page_cur_search_with_match(block, sec_index,
+							  tuple, PAGE_CUR_LE,
+							  &up_match,
+							  &low_match,
+							  &page_cursor,
+							  nullptr));
 			ut_ad(low_match < dtuple_get_n_fields_cmp(tuple));
 			mem_heap_free(heap);
 			clust_rec = NULL;

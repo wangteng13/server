@@ -2005,6 +2005,8 @@ non_empty:
     return false;
   }
   rec= page_rec_get_next(btr_pcur_get_rec(&pcur));
+  if (UNIV_UNLIKELY(!rec))
+    goto non_empty;
   if (rec_is_metadata(rec, *clust_index))
     btr_pcur_get_page_cur(&pcur)->rec= rec;
 scan_leaf:
