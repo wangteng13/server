@@ -6034,6 +6034,13 @@ static int get_schema_column_record(THD *thd, TABLE_LIST *tables,
   show_table->use_all_columns();               // Required for default
   restore_record(show_table, s->default_values);
 
+  check_access(thd,SELECT_ACL, db_name->str,
+              &tables->grant.privilege, 0, 0, MY_TEST(tables->schema_table));
+  if (is_temporary_table(tables))
+  {
+    tables->grant.privilege|= TMP_TABLE_ACLS;
+  }
+
   for (; (field= *ptr) ; ptr++)
   {
     if(field->invisible > INVISIBLE_USER)
@@ -6053,24 +6060,24 @@ static int get_schema_column_record(THD *thd, TABLE_LIST *tables,
     restore_record(table, s->default_values);
 
 #ifndef NO_EMBEDDED_ACCESS_CHECKS
-    uint col_access;
-    check_access(thd,SELECT_ACL, db_name->str,
-                 &tables->grant.privilege, 0, 0, MY_TEST(tables->schema_table));
-    col_access= get_column_grant(thd, &tables->grant,
-                                 db_name->str, table_name->str,
-                                 field->field_name.str) & COL_ACLS;
-    if (!tables->schema_table && !col_access)
-      continue;
-    char *end= tmp;
-    for (uint bitnr=0; col_access ; col_access>>=1,bitnr++)
-    {
-      if (col_access & 1)
+      uint col_access;
+      col_access= get_column_grant(thd, &tables->grant,
+                                    db_name->str, table_name->str,
+                                    field->field_name.str) & COL_ACLS;
+
+      if (!tables->schema_table && !col_access)
+        continue;
+
+      char *end= tmp;
+      for (uint bitnr=0; col_access ; col_access>>=1,bitnr++)
       {
-        *end++=',';
-        end=strmov(end,grant_types.type_names[bitnr]);
+        if (col_access & 1)
+        {
+          *end++=',';
+          end=strmov(end,grant_types.type_names[bitnr]);
+        }
       }
-    }
-    table->field[18]->store(tmp+1,end == tmp ? 0 : (uint) (end-tmp-1), cs);
+      table->field[18]->store(tmp+1,end == tmp ? 0 : (uint) (end-tmp-1), cs);
 
 #endif
     table->field[0]->store(STRING_WITH_LEN("def"), cs);
