@@ -40,9 +40,6 @@ set @@global.rpl_semi_sync_master_enabled = 1;
 INSERT INTO t1(a) VALUES (2);
 include/save_master_gtid.inc
 connection server_1;
-include/start_slave.inc
-Warnings:
-Note	1254	Slave is already running
 #
 # the successful sync is a required proof
 #

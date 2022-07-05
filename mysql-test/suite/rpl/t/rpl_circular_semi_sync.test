@@ -1,7 +1,8 @@
 # ==== References ====
 #
 # MDEV-27760 event may non stop replicate in circular semisync setup
-# MDEV-28609 extend --gtid-ignore-duplicates to apply to the slave server's own binlog
+# MDEV-28609 refine gtid-strict-mode to ignore same server-id gtid from the past
+#            on semisync slave
 --source include/have_innodb.inc
 --source include/have_binlog_format_mixed.inc
 --source include/master-slave.inc
@@ -13,8 +14,8 @@
 # state). Such transaction is silently ignored similarly to
 # replicate_same_sever_id; and
 # B.
-# In contrast to A. the out-of-order gtid error for a "foreign" server-id
-# transaction that makes its round-trip to the originator server.
+# In contrast to A. the out-of-order gtid error is thrown when for a "foreign"
+# server-id transaction makes its round-trip to the originator server.
 
 --echo # Master server_1 and Slave server_2 initialization ...
 --connection server_2
@@ -64,7 +65,6 @@ INSERT INTO t1(a) VALUES (2);
 --source include/save_master_gtid.inc
 
 --connection server_1
---source include/start_slave.inc
 --echo #
 --echo # the successful sync is a required proof
 --echo #
