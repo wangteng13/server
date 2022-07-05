@@ -1,0 +1,255 @@
+include/master-slave.inc
+[connection master]
+#
+# Test initialization
+connection master;
+# Create sequence without cache so updates are immediately binlogged
+create sequence s1 cache=0;
+#
+# Test Case 1) SETVAL with binlog_row_image=MINIMAL should write only
+# columns @1 and @8 to the binary log
+#
+# set MINIMAL for both tests 1 and 2
+CON: 'master', IMG: 'MINIMAL', RESTART SLAVE: 'N'
+connection master;
+SET SESSION binlog_row_image= 'MINIMAL';
+SET GLOBAL binlog_row_image= 'MINIMAL';
+FLUSH TABLES;
+SHOW VARIABLES LIKE 'binlog_row_image';
+Variable_name	Value
+binlog_row_image	MINIMAL
+CON: 'slave', IMG: 'MINIMAL', RESTART SLAVE: 'Y'
+connection slave;
+SET SESSION binlog_row_image= 'MINIMAL';
+SET GLOBAL binlog_row_image= 'MINIMAL';
+include/stop_slave.inc
+include/start_slave.inc
+FLUSH TABLES;
+SHOW VARIABLES LIKE 'binlog_row_image';
+Variable_name	Value
+binlog_row_image	MINIMAL
+connection master;
+FLUSH LOGS;
+SELECT SETVAL(s1, 10);
+SETVAL(s1, 10)
+10
+connection master;
+include/save_master_gtid.inc
+# Tag and close the current master binary log to analyze for correctness
+FLUSH LOGS;
+# Ensure replication works without error
+connection slave;
+include/sync_with_master_gtid.inc
+# Validate sequence s1 is equivalent on both master and slave
+include/diff_tables.inc [master:test.s1,slave:test.s1]
+# Validate sequence event was binlogged with the correct columns
+# MYSQL_BINLOG MYSQLD_DATADIR/BINLOG_FILE -vv > mysqlbinlog_out_file
+# Expected Search Results:
+#    Only columns @1 and @8 should be written to the binary log
+FOUND 1 /@1/ in binlog_decoded.out
+NOT FOUND /@2/ in binlog_decoded.out
+NOT FOUND /@3/ in binlog_decoded.out
+NOT FOUND /@4/ in binlog_decoded.out
+NOT FOUND /@5/ in binlog_decoded.out
+NOT FOUND /@6/ in binlog_decoded.out
+NOT FOUND /@7/ in binlog_decoded.out
+FOUND 1 /@8/ in binlog_decoded.out
+#
+# Test Case 2) NEXTVAL with binlog_row_image=MINIMAL should write only
+# columns @1 and @8 to the binary log
+#
+connection master;
+FLUSH LOGS;
+SELECT NEXTVAL(s1);
+NEXTVAL(s1)
+11
+connection master;
+include/save_master_gtid.inc
+# Tag and close the current master binary log to analyze for correctness
+FLUSH LOGS;
+# Ensure replication works without error
+connection slave;
+include/sync_with_master_gtid.inc
+# Validate sequence s1 is equivalent on both master and slave
+include/diff_tables.inc [master:test.s1,slave:test.s1]
+# Validate sequence event was binlogged with the correct columns
+# MYSQL_BINLOG MYSQLD_DATADIR/BINLOG_FILE -vv > mysqlbinlog_out_file
+# Expected Search Results:
+#    Only columns @1 and @8 should be written to the binary log
+FOUND 1 /@1/ in binlog_decoded.out
+NOT FOUND /@2/ in binlog_decoded.out
+NOT FOUND /@3/ in binlog_decoded.out
+NOT FOUND /@4/ in binlog_decoded.out
+NOT FOUND /@5/ in binlog_decoded.out
+NOT FOUND /@6/ in binlog_decoded.out
+NOT FOUND /@7/ in binlog_decoded.out
+FOUND 1 /@8/ in binlog_decoded.out
+#
+# Test Case 3) SETVAL with binlog_row_image=NOBLOB should write all
+# columns to the binary log
+#
+# set NOBLOB for both tests 3 and 4
+connection master;
+CON: 'master', IMG: 'NOBLOB', RESTART SLAVE: 'N'
+connection master;
+SET SESSION binlog_row_image= 'NOBLOB';
+SET GLOBAL binlog_row_image= 'NOBLOB';
+FLUSH TABLES;
+SHOW VARIABLES LIKE 'binlog_row_image';
+Variable_name	Value
+binlog_row_image	NOBLOB
+CON: 'slave', IMG: 'NOBLOB', RESTART SLAVE: 'Y'
+connection slave;
+SET SESSION binlog_row_image= 'NOBLOB';
+SET GLOBAL binlog_row_image= 'NOBLOB';
+include/stop_slave.inc
+include/start_slave.inc
+FLUSH TABLES;
+SHOW VARIABLES LIKE 'binlog_row_image';
+Variable_name	Value
+binlog_row_image	NOBLOB
+connection master;
+FLUSH LOGS;
+SELECT SETVAL(s1, 20);
+SETVAL(s1, 20)
+20
+connection master;
+include/save_master_gtid.inc
+# Tag and close the current master binary log to analyze for correctness
+FLUSH LOGS;
+# Ensure replication works without error
+connection slave;
+include/sync_with_master_gtid.inc
+# Validate sequence s1 is equivalent on both master and slave
+include/diff_tables.inc [master:test.s1,slave:test.s1]
+# Validate sequence event was binlogged with the correct columns
+# MYSQL_BINLOG MYSQLD_DATADIR/BINLOG_FILE -vv > mysqlbinlog_out_file
+# Expected Search Results:
+#    All columns should be written to the binary log
+FOUND 1 /@1/ in binlog_decoded.out
+FOUND 1 /@2/ in binlog_decoded.out
+FOUND 1 /@3/ in binlog_decoded.out
+FOUND 1 /@4/ in binlog_decoded.out
+FOUND 1 /@5/ in binlog_decoded.out
+FOUND 1 /@6/ in binlog_decoded.out
+FOUND 1 /@7/ in binlog_decoded.out
+FOUND 1 /@8/ in binlog_decoded.out
+#
+# Test Case 4) NEXTVAL with binlog_row_image=NOBLOB should write all
+# columns to the binary log
+#
+connection master;
+FLUSH LOGS;
+SELECT NEXTVAL(s1);
+NEXTVAL(s1)
+21
+connection master;
+include/save_master_gtid.inc
+# Tag and close the current master binary log to analyze for correctness
+FLUSH LOGS;
+# Ensure replication works without error
+connection slave;
+include/sync_with_master_gtid.inc
+# Validate sequence s1 is equivalent on both master and slave
+include/diff_tables.inc [master:test.s1,slave:test.s1]
+# Validate sequence event was binlogged with the correct columns
+# MYSQL_BINLOG MYSQLD_DATADIR/BINLOG_FILE -vv > mysqlbinlog_out_file
+# Expected Search Results:
+#    All columns should be written to the binary log
+FOUND 1 /@1/ in binlog_decoded.out
+FOUND 1 /@2/ in binlog_decoded.out
+FOUND 1 /@3/ in binlog_decoded.out
+FOUND 1 /@4/ in binlog_decoded.out
+FOUND 1 /@5/ in binlog_decoded.out
+FOUND 1 /@6/ in binlog_decoded.out
+FOUND 1 /@7/ in binlog_decoded.out
+FOUND 1 /@8/ in binlog_decoded.out
+#
+# Test Case 5) SETVAL with binlog_row_image=FULL should write all
+# columns to the binary log
+#
+# set FULL for both tests 3 and 4
+CON: 'master', IMG: 'FULL', RESTART SLAVE: 'N'
+connection master;
+SET SESSION binlog_row_image= 'FULL';
+SET GLOBAL binlog_row_image= 'FULL';
+FLUSH TABLES;
+SHOW VARIABLES LIKE 'binlog_row_image';
+Variable_name	Value
+binlog_row_image	FULL
+CON: 'slave', IMG: 'FULL', RESTART SLAVE: 'Y'
+connection slave;
+SET SESSION binlog_row_image= 'FULL';
+SET GLOBAL binlog_row_image= 'FULL';
+include/stop_slave.inc
+include/start_slave.inc
+FLUSH TABLES;
+SHOW VARIABLES LIKE 'binlog_row_image';
+Variable_name	Value
+binlog_row_image	FULL
+connection slave;
+connection master;
+FLUSH LOGS;
+SELECT SETVAL(s1, 30);
+SETVAL(s1, 30)
+30
+connection master;
+include/save_master_gtid.inc
+# Tag and close the current master binary log to analyze for correctness
+FLUSH LOGS;
+# Ensure replication works without error
+connection slave;
+include/sync_with_master_gtid.inc
+# Validate sequence s1 is equivalent on both master and slave
+include/diff_tables.inc [master:test.s1,slave:test.s1]
+# Validate sequence event was binlogged with the correct columns
+# MYSQL_BINLOG MYSQLD_DATADIR/BINLOG_FILE -vv > mysqlbinlog_out_file
+# Expected Search Results:
+#    All columns should be written to the binary log
+FOUND 1 /@1/ in binlog_decoded.out
+FOUND 1 /@2/ in binlog_decoded.out
+FOUND 1 /@3/ in binlog_decoded.out
+FOUND 1 /@4/ in binlog_decoded.out
+FOUND 1 /@5/ in binlog_decoded.out
+FOUND 1 /@6/ in binlog_decoded.out
+FOUND 1 /@7/ in binlog_decoded.out
+FOUND 1 /@8/ in binlog_decoded.out
+#
+# Test Case 6) NEXTVAL with binlog_row_image=FULL should write all
+# columns to the binary log
+#
+connection master;
+FLUSH LOGS;
+SELECT NEXTVAL(s1);
+NEXTVAL(s1)
+31
+connection master;
+include/save_master_gtid.inc
+# Tag and close the current master binary log to analyze for correctness
+FLUSH LOGS;
+# Ensure replication works without error
+connection slave;
+include/sync_with_master_gtid.inc
+# Validate sequence s1 is equivalent on both master and slave
+include/diff_tables.inc [master:test.s1,slave:test.s1]
+# Validate sequence event was binlogged with the correct columns
+# MYSQL_BINLOG MYSQLD_DATADIR/BINLOG_FILE -vv > mysqlbinlog_out_file
+# Expected Search Results:
+#    All columns should be written to the binary log
+FOUND 1 /@1/ in binlog_decoded.out
+FOUND 1 /@2/ in binlog_decoded.out
+FOUND 1 /@3/ in binlog_decoded.out
+FOUND 1 /@4/ in binlog_decoded.out
+FOUND 1 /@5/ in binlog_decoded.out
+FOUND 1 /@6/ in binlog_decoded.out
+FOUND 1 /@7/ in binlog_decoded.out
+FOUND 1 /@8/ in binlog_decoded.out
+#
+# Cleanup
+connection master;
+DROP TABLE s1;
+include/save_master_gtid.inc
+connection slave;
+include/sync_with_master_gtid.inc
+include/rpl_end.inc
+# End of tests

@@ -769,7 +769,9 @@ longlong SEQUENCE::next_value(TABLE *table, bool second_round, int *error)
     DBUG_RETURN(next_value(table, 1, error));
   }
 
-  if (unlikely((*error= write(table, 0))))
+  if (unlikely(
+          (*error= write(table, global_system_variables.binlog_row_image !=
+                                    BINLOG_ROW_IMAGE_MINIMAL))))
   {
     reserved_until= org_reserved_until;
     next_free_value= res_value;
@@ -875,7 +877,8 @@ int SEQUENCE::set_value(TABLE *table, longlong next_val, ulonglong next_round,
       needs_to_be_stored)
   {
     reserved_until= next_free_value;
-    if (write(table, 0))
+    if (write(table, global_system_variables.binlog_row_image !=
+                         BINLOG_ROW_IMAGE_MINIMAL))
     {
       reserved_until=  org_reserved_until;
       next_free_value= org_next_free_value;
