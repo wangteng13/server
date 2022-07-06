@@ -14,7 +14,7 @@
 # state). Such transaction is silently ignored similarly to
 # replicate_same_sever_id; and
 # B.
-# In contrast to A. the out-of-order gtid error is thrown when for a "foreign"
+# In contrast to A. the out-of-order gtid error is thrown when a "foreign"
 # server-id transaction makes its round-trip to the originator server.
 
 --echo # Master server_1 and Slave server_2 initialization ...
@@ -57,6 +57,11 @@ evalp CHANGE MASTER TO master_host='127.0.0.1', master_port=$SERVER_MYPORT_2, ma
 --echo ... is done.
 
 --echo ## A. no out-of-order gtid error for own transaction made round trip
+
+# A0. server_1 has already originated the transaction
+--let $wait_condition=select @@gtid_slave_pos=@@gtid_binlog_pos
+--source include/wait_condition.inc
+
 # A1. server_2 originates
 --connection server_2
 set @@global.gtid_strict_mode = true;
@@ -69,7 +74,7 @@ INSERT INTO t1(a) VALUES (2);
 --echo # the successful sync is a required proof
 --echo #
 --source include/sync_with_master_gtid.inc
-# A2. server_1 originates
+# A2. server_1 is originating now
 update t1 set b=b+1 where a=2;
 --source include/save_master_gtid.inc
 

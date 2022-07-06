@@ -6777,7 +6777,7 @@ dbug_gtid_accept:
     inc_pos= event_len;
 
     /*
-      To compute `true` is normal for this semisync slave server when
+      To compute `true` is normal for this *now* semisync slave server when
       it has passed its crash-recovery as a former master.
     */
     mi->do_accept_own_server_id=
