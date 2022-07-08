@@ -144,6 +144,7 @@ COMMIT;
 # Good4-5: continue T@8 above
 
 --connection con2
+--error 0, ER_SP_DOES_NOT_EXIST
 --reap
 --disconnect con1
 --disconnect con2
