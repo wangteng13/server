@@ -1441,7 +1441,10 @@ void Query_cache::store_query(THD *thd, TABLE_LIST *tables_used)
     flags.collation_connection_num=
       thd->variables.collation_connection->number;
     flags.limit= thd->variables.select_limit;
-    flags.time_zone= thd->variables.time_zone;
+    if (thd->time_zone_used)
+      flags.time_zone= thd->variables.time_zone;
+    else
+      flags.time_zone= NULL;
     flags.sql_mode= thd->variables.sql_mode;
     flags.max_sort_length= thd->variables.max_sort_length;
     flags.lc_time_names= thd->variables.lc_time_names;
@@ -1944,7 +1947,10 @@ Query_cache::send_result_to_client(THD *thd, char *org_sql, uint query_length)
      UINT_MAX);
   flags.collation_connection_num= thd->variables.collation_connection->number;
   flags.limit= thd->variables.select_limit;
-  flags.time_zone= thd->variables.time_zone;
+  if (thd->time_zone_used)
+    flags.time_zone= thd->variables.time_zone;
+  else
+    flags.time_zone= NULL;
   flags.sql_mode= thd->variables.sql_mode;
   flags.max_sort_length= thd->variables.max_sort_length;
   flags.group_concat_max_len= thd->variables.group_concat_max_len;
